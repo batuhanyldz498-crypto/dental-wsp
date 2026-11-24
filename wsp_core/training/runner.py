@@ -12,9 +12,9 @@ import pandas as pd
 from wsp_core.evaluation.classification import ClassificationSample, evaluate_classifier
 from wsp_core.evaluation.segmentation import (
     SegmentationSample,
-    evaluate_segmentation_paired_audit,
+    bounding_slices,
+    contour_and_band,
     group_segmentation_scores,
-    predict_cohort,
 )
 from wsp_core.guards import require
 from wsp_core.schemas import strict_json_loads, verify_response_lock
@@ -181,21 +181,110 @@ def plot_classification_learning_curve(
     return fig
 
 
-def _score_seg_payload_fast(payload: dict[str, Any], val_samples: list[SegmentationSample]) -> dict[str, float]:
-    """Score region Dice/IoU plus paired boundary & excluded-tooth-pixel audit on validation."""
-    masks = predict_cohort(payload, val_samples)
+def _precompute_seg_val_cache(val_samples: list[SegmentationSample]) -> list[dict[str, Any]]:
+    """Precompute reference boxes, contours, and bands once across all validation samples."""
+    cache = []
+    for s in val_samples:
+        valid = s.valid > 0
+        truth = (s.target > 0) & valid
+        ref_box = bounding_slices(truth)
+        ref_edge, ref_band = contour_and_band(truth, valid)
+        ref_area = int(np.count_nonzero(truth))
+        ref_box_vol = int(np.prod([sl.stop - sl.start for sl in ref_box])) if ref_box is not None else 0
+        cache.append(
+            {
+                "sample": s,
+                "valid": valid,
+                "truth": truth,
+                "ref_box": ref_box,
+                "ref_edge": ref_edge,
+                "ref_band": ref_band,
+                "ref_area": ref_area,
+                "ref_box_vol": ref_box_vol,
+            }
+        )
+    return cache
+
+
+def _predict_masks_torch(
+    architecture: str,
+    payload: dict[str, Any],
+    val_x: Any,
+    val_samples: list[SegmentationSample],
+    device: str,
+) -> dict[str, np.ndarray]:
+    """Fast GPU/CPU batched PyTorch inference returning valid boolean masks."""
+    import torch
+    from wsp_core.architectures.seg_wsp82_2d import build_torch_seg_wsp82_2d
+    from wsp_core.architectures.seg_wsp82_3d import build_torch_seg_wsp82_3d
+
+    if architecture in ("pano-wsp82-v1", "periapical-wsp82-v1"):
+        model = build_torch_seg_wsp82_2d(architecture=architecture)
+    else:
+        model = build_torch_seg_wsp82_3d()
+    model.load_from_wsp_dict(payload)
+    model = model.to(device).eval()
+    masks: dict[str, np.ndarray] = {}
+    batch_size = 16 if architecture != "cbct-wsp82-v1" else 4
+    with torch.no_grad():
+        for start in range(0, len(val_samples), batch_size):
+            xb = val_x[start : start + batch_size].to(device)
+            preds = (model(xb).squeeze(1) >= 0.0).cpu().numpy()
+            for offset, s in enumerate(val_samples[start : start + batch_size]):
+                masks[s.sample_id] = preds[offset] & (s.valid > 0)
+    return masks
+
+
+def _score_seg_payload_fast(
+    architecture: str,
+    payload: dict[str, Any],
+    val_x: Any,
+    val_samples: list[SegmentationSample],
+    val_cache: list[dict[str, Any]],
+    device: str,
+) -> dict[str, float]:
+    """Score Arm-A region Dice/IoU, boundary F1, edge recall, box IoU, and excluded tooth rate cleanly."""
+    masks = _predict_masks_torch(architecture, payload, val_x, val_samples, device=device)
     reg, _ = group_segmentation_scores(val_samples, masks)
-    audit = evaluate_segmentation_paired_audit(payload, val_samples)
+
+    by_group: dict[str, list[tuple[float, float, float, float]]] = {}
+    for item in val_cache:
+        s = item["sample"]
+        valid = item["valid"]
+        truth = item["truth"]
+        ref_box = item["ref_box"]
+        ref_edge = item["ref_edge"]
+        ref_band = item["ref_band"]
+        ref_area = item["ref_area"]
+        ref_box_vol = item["ref_box_vol"]
+
+        pred = masks[s.sample_id]
+        pred_edge, pred_band = contour_and_band(pred, valid)
+        prec = float(np.count_nonzero(ref_band[pred_edge]) / pred_edge.size) if pred_edge.size else 0.0
+        recall = float(pred_band[ref_edge].mean()) if ref_edge.size else 0.0
+        bf1 = 2.0 * prec * recall / (prec + recall) if (prec + recall) > 0.0 else 0.0
+
+        pred_box = bounding_slices(pred)
+        proposal = np.zeros_like(valid, dtype=bool)
+        if pred_box is not None:
+            proposal[pred_box] = True
+        prop_vol = int(np.count_nonzero(proposal))
+        overlap = int(np.count_nonzero(proposal[ref_box])) if ref_box is not None else 0
+        denom = prop_vol + ref_box_vol - overlap
+        box_iou = overlap / denom if denom > 0 else 0.0
+        excl_tooth = 1.0 - (int(np.count_nonzero(truth & proposal)) / ref_area) if ref_area > 0 else 0.0
+        by_group.setdefault(s.group_id, []).append((100.0 * bf1, 100.0 * recall, 100.0 * box_iou, 100.0 * excl_tooth))
+
+    group_means = np.array([np.mean(v, axis=0) for v in by_group.values()], dtype=np.float64)
     return {
         "dice_pct": 100.0 * reg["dice"],
         "iou_pct": 100.0 * reg["iou"],
         "precision_pct": 100.0 * reg["precision"],
         "recall_pct": 100.0 * reg["recall"],
-        "bf1_a_pct": audit["bf1_a_pct"],
-        "edge_recall_a_pct": audit["edge_recall_a_pct"],
-        "in_box_prec_a_pct": audit["in_box_prec_a_pct"],
-        "box_iou_a_pct": audit["box_iou_a_pct"],
-        "excluded_tooth_a_pct": audit["excluded_tooth_a_pct"],
+        "bf1_a_pct": float(group_means[:, 0].mean()),
+        "edge_recall_a_pct": float(group_means[:, 1].mean()),
+        "box_iou_a_pct": float(group_means[:, 2].mean()),
+        "excluded_tooth_a_pct": float(group_means[:, 3].mean()),
     }
 
 
@@ -215,18 +304,23 @@ def run_segmentation_three_arm_validation(
     out_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run Frozen WSP (K=0), Random-Init Adam, WSP Warm-Start Adam, and Trained Position-Only on validation."""
+    import torch
+
     design_bytes = design_lock_path.read_bytes()
     design = strict_json_loads(design_bytes)
     resp = strict_json_loads(responses_lock_path.read_bytes())
     frozen_models = verify_response_lock(design, design_bytes, resp, expected_architecture=architecture)
     require(len(frozen_models) > 0, f"No valid frozen replies found in {responses_lock_path}")
 
+    val_cache = _precompute_seg_val_cache(val_samples)
+    val_x = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in val_samples])
     rows: list[dict[str, Any]] = []
 
     # Arm 1: Frozen WSP (K = 0)
     for slot, payload in frozen_models.items():
-        metrics = _score_seg_payload_fast(payload, val_samples)
+        metrics = _score_seg_payload_fast(architecture, payload, val_x, val_samples, val_cache, device)
         rows.append({"task": task, "arm": "frozen_wsp", "k_budget": 0, "seed": -1, "init_slot": slot, **metrics})
+    print(f"[{task}] Scored Arm 1 Frozen WSP ({len(frozen_models)} replies)")
 
     by_group: dict[str, list[SegmentationSample]] = {}
     for s in train_samples:
@@ -248,7 +342,7 @@ def run_segmentation_three_arm_validation(
                     "k_budget": k,
                     "seed": seed,
                     "init_slot": "position_only",
-                    **_score_seg_payload_fast(pos_payload, val_samples),
+                    **_score_seg_payload_fast(architecture, pos_payload, val_x, val_samples, val_cache, device),
                 }
             )
 
@@ -261,7 +355,7 @@ def run_segmentation_three_arm_validation(
                     "k_budget": k,
                     "seed": seed,
                     "init_slot": "random",
-                    **_score_seg_payload_fast(rand_payload, val_samples),
+                    **_score_seg_payload_fast(architecture, rand_payload, val_x, val_samples, val_cache, device),
                 }
             )
 
@@ -275,9 +369,10 @@ def run_segmentation_three_arm_validation(
                         "k_budget": k,
                         "seed": seed,
                         "init_slot": slot,
-                        **_score_seg_payload_fast(warm_payload, val_samples),
+                        **_score_seg_payload_fast(architecture, warm_payload, val_x, val_samples, val_cache, device),
                     }
                 )
+            print(f"[{task}] Completed seed={seed}, K={k}")
 
     runs_df = pd.DataFrame(rows)
     summary_df = (
