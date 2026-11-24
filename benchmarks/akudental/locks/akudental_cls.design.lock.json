@@ -1,0 +1,53 @@
+{
+  "architecture": "cls-lenet2d-v1",
+  "dataset": "akudental",
+  "parameter_count": 261,
+  "prompt_file": "cls_prompt.md",
+  "prompt_sha256": "7f133d15e172542f3d7ad93dfdc57be359700bacbecc77dd21230a0f2a3d1b48",
+  "protocol": {
+    "adam_epochs": 200,
+    "adam_lr": 0.005,
+    "arms": [
+      "frozen_wsp",
+      "random_init_adam",
+      "wsp_warmstart_adam"
+    ],
+    "canvas": [
+      64,
+      64
+    ],
+    "intensity_normalization": "percentile_0.5_99.5",
+    "label_budgets_k": [
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "target": "radiopaque_restoration_or_implant_presence",
+    "test_sealed": true,
+    "threshold_logit": 0.0
+  },
+  "protocol_sha256": "8aece064a4788af940f77d14290c9da0303aacab8aa34e8a8a2559e11e16fe33",
+  "schema_version": "dental-wsp-design-v1",
+  "scientific_sources": [
+    {
+      "name": "Weight-Space Programming for Medical Imaging",
+      "url": "https://arxiv.org/abs/2611.12066"
+    },
+    {
+      "name": "AKUDENTAL Panoramic Dataset",
+      "url": "https://doi.org/10.1186/s12903-025-07645-0"
+    }
+  ],
+  "task": "akudental_cls",
+  "track": "cls"
+}

@@ -1,0 +1,61 @@
+{
+  "architecture": "cbct-wsp82-v1",
+  "dataset": "dentvoxel",
+  "parameter_count": 82,
+  "prompt_file": "seg_prompt.md",
+  "prompt_sha256": "f3019d1966941eaf316b33daafd60e12322ea21dc4495c3ce5af8644be71cf96",
+  "protocol": {
+    "adam_epochs": 150,
+    "adam_lr": 0.01,
+    "arms": [
+      "frozen_wsp",
+      "random_init_adam",
+      "wsp_warmstart_adam",
+      "trained_position_only"
+    ],
+    "canvas": [
+      96,
+      128,
+      128
+    ],
+    "intensity_normalization": "hu_window_-1000_3000_with_audit_gate",
+    "label_budgets_k": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      60
+    ],
+    "scan_split": [
+      60,
+      20,
+      20
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "target": "3d_natural_tooth_union_fdi_11_48",
+    "test_sealed": true,
+    "threshold_logit": 0.0
+  },
+  "protocol_sha256": "447b53d5899d829747be52290af7036439b882050d83aac5eea202b5324ee753",
+  "schema_version": "dental-wsp-design-v1",
+  "scientific_sources": [
+    {
+      "name": "Weight-Space Programming for Medical Imaging",
+      "url": "https://arxiv.org/abs/2611.12066"
+    },
+    {
+      "name": "DentVoxel 38-Structure Dental CBCT Dataset (Figshare)",
+      "url": "https://figshare.com/articles/dataset/DentVoxel_a_fully_annotated_dental_CBCT_dataset_with_38_instance_anatomical_structures/31239889"
+    }
+  ],
+  "task": "dentvoxel_seg",
+  "track": "seg"
+}

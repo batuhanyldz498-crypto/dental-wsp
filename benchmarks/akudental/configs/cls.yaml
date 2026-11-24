@@ -1,0 +1,20 @@
+task: akudental_cls
+dataset: akudental
+track: cls
+architecture: cls-lenet2d-v1
+protocol:
+  canvas: [64, 64]
+  intensity_normalization: percentile_0.5_99.5
+  target: radiopaque_restoration_or_implant_presence
+  threshold_logit: 0.0
+  label_budgets_k: [2, 4, 8, 16, 32, 64]
+  seeds: [0, 1, 2, 3, 4]
+  adam_lr: 0.005
+  adam_epochs: 200
+  arms: [frozen_wsp, random_init_adam, wsp_warmstart_adam]
+  test_sealed: true
+scientific_sources:
+  - name: Weight-Space Programming for Medical Imaging
+    url: https://arxiv.org/abs/2611.12066
+  - name: AKUDENTAL Panoramic Dataset
+    url: https://doi.org/10.1186/s12903-025-07645-0

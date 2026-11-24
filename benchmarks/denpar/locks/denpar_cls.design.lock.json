@@ -1,0 +1,53 @@
+{
+  "architecture": "cls-lenet2d-v1",
+  "dataset": "denpar",
+  "parameter_count": 261,
+  "prompt_file": "cls_prompt.md",
+  "prompt_sha256": "a503467037f27e0cb15aaa0575603d4e1d9bbc1d86225ecc6380caf7aef55e57",
+  "protocol": {
+    "adam_epochs": 200,
+    "adam_lr": 0.005,
+    "arms": [
+      "frozen_wsp",
+      "random_init_adam",
+      "wsp_warmstart_adam"
+    ],
+    "canvas": [
+      64,
+      64
+    ],
+    "intensity_normalization": "percentile_0.5_99.5",
+    "label_budgets_k": [
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "target": "alveolar_bone_loss_presence",
+    "test_sealed": true,
+    "threshold_logit": 0.0
+  },
+  "protocol_sha256": "18ccece9e4af025047bd42d3f074d8b70e4dd940b3e081574b9b70617a98d918",
+  "schema_version": "dental-wsp-design-v1",
+  "scientific_sources": [
+    {
+      "name": "Weight-Space Programming for Medical Imaging",
+      "url": "https://arxiv.org/abs/2611.12066"
+    },
+    {
+      "name": "DenPAR Annotated Intra-Oral Periapical Radiographs Dataset (Scientific Data, 2025)",
+      "url": "https://zenodo.org"
+    }
+  ],
+  "task": "denpar_cls",
+  "track": "cls"
+}

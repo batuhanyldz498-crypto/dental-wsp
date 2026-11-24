@@ -1,0 +1,55 @@
+{
+  "architecture": "pano-wsp82-v1",
+  "dataset": "akudental",
+  "parameter_count": 82,
+  "prompt_file": "seg_prompt.md",
+  "prompt_sha256": "4fa566beb230c7e2a5f1815970816392cc16e29099ede2e9160926efda4c36a6",
+  "protocol": {
+    "adam_epochs": 200,
+    "adam_lr": 0.01,
+    "arms": [
+      "frozen_wsp",
+      "random_init_adam",
+      "wsp_warmstart_adam",
+      "trained_position_only"
+    ],
+    "canvas": [
+      384,
+      768
+    ],
+    "intensity_normalization": "percentile_0.5_99.5",
+    "label_budgets_k": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "target": "natural_tooth_union_fdi_11_48",
+    "test_sealed": true,
+    "threshold_logit": 0.0
+  },
+  "protocol_sha256": "fea1c324b80f0e7f6c78bf83ca3d1a78601139fe2ac603bf2b9dd758162752e0",
+  "schema_version": "dental-wsp-design-v1",
+  "scientific_sources": [
+    {
+      "name": "Weight-Space Programming for Medical Imaging",
+      "url": "https://arxiv.org/abs/2611.12066"
+    },
+    {
+      "name": "AKUDENTAL Panoramic Dataset",
+      "url": "https://doi.org/10.1186/s12903-025-07645-0"
+    }
+  ],
+  "task": "akudental_seg",
+  "track": "seg"
+}

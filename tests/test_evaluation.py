@@ -1,0 +1,153 @@
+"""Synthetic 2D and 3D end-to-end tests for segmentation and classification evaluation suites."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from benchmarks.dentvoxel.adapter import (
+    audit_intensity_calibration,
+    extract_axial_sinus_slices,
+    prepare_cbct_3d_canvas,
+)
+from wsp_core.evaluation.classification import (
+    ClassificationSample,
+    compute_pr_auc,
+    compute_roc_auc,
+    evaluate_classifier,
+)
+from wsp_core.evaluation.segmentation import (
+    SegmentationSample,
+    evaluate_segmentation_paired_audit,
+    evaluate_segmentation_swaps,
+)
+from wsp_core.schemas import zero_payload
+
+
+def _synthetic_2d_cohort() -> tuple[list[SegmentationSample], dict]:
+    """Create 4 synthetic radiographs with bright tooth rectangles at shifted horizontal positions."""
+    samples: list[SegmentationSample] = []
+    shifts = [8, 18, 28, 38]
+    for idx, x0 in enumerate(shifts):
+        img = np.full((32, 64), 0.15, dtype=np.float32)
+        target = np.zeros((32, 64), dtype=bool)
+        valid = np.ones((32, 64), dtype=bool)
+        # Tooth phantom in middle vertical band, shifted horizontally per group
+        img[10:22, x0 : x0 + 12] = 0.90
+        target[10:22, x0 : x0 + 12] = True
+        # Bright off-arch distractor at top-left border to verify spatial-grid suppression
+        img[1:5, 1:8] = 0.90
+        samples.append(
+            SegmentationSample(sample_id=f"s{idx}", group_id=f"g{idx}", image=img, target=target, valid=valid)
+        )
+
+    payload = zero_payload("pano-wsp82-v1")
+    # Filter 0 activates on bright pixels (>0.5)
+    payload["kernels"][0][1][1] = 4.0
+    payload["feature_bias"][0] = -2.0
+    payload["readout"][0] = 2.0
+    # Spatial grid strongly penalizes top row (suppressing the top-left distractor)
+    payload["spatial_bias"] = [
+        [-6.0, -6.0, -6.0, -6.0, -6.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+        [-6.0, -6.0, -6.0, -6.0, -6.0],
+    ]
+    payload["output_bias"] = -0.5
+    return samples, payload
+
+
+def test_2d_swaps_and_paired_audit_end_to_end():
+    samples, payload = _synthetic_2d_cohort()
+    swaps = evaluate_segmentation_swaps(payload, samples)
+    assert swaps["pair_count"] == 12  # 4 * 3 directed cross-group pairs
+    assert swaps["intact"]["correct_dice_pct"] > 90.0
+    assert swaps["intact"]["swap_loss_pp"] > 20.0
+    assert swaps["position_only"]["swap_loss_pp"] == pytest.approx(0.0, abs=1e-10)
+
+    audit = evaluate_segmentation_paired_audit(payload, samples)
+    # Grid suppresses top-left distractor -> almost all FP reduction is outside the tooth box
+    assert audit["fp_saved_out"] > 0.0
+    assert audit["outside_fp_reduction_share_pct"] > 95.0
+    # Paired reference-edge transition shares sum to 100%
+    edge_sum = (
+        audit["edges_preserved_pct"]
+        + audit["edges_gained_pct"]
+        + audit["edges_lost_pct"]
+        + audit["edges_missed_pct"]
+    )
+    assert edge_sum == pytest.approx(100.0, abs=1e-5)
+    # Tight intact box covers the tooth completely -> 0% excluded tooth pixels
+    assert audit["excluded_tooth_a_pct"] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_3d_cbct_swaps_audit_and_hu_check():
+    # Build 3 synthetic HU volumes with shifted bright enamel cubes (+2200 HU) in soft tissue (+100 HU)
+    raw_vols = []
+    samples: list[SegmentationSample] = []
+    for idx, x0 in enumerate((3, 6, 9)):
+        vol_hu = np.full((12, 16, 16), -900.0, dtype=np.float32)  # air background
+        vol_hu[2:10, 2:14, 2:14] = 100.0  # soft tissue
+        tooth = np.zeros((12, 16, 16), dtype=bool)
+        vol_hu[4:8, 6:10, x0 : x0 + 4] = 2400.0  # bright enamel/dentin
+        tooth[4:8, 6:10, x0 : x0 + 4] = True
+        raw_vols.append(vol_hu)
+        img_c, msk_c, val_c = prepare_cbct_3d_canvas(vol_hu, tooth, canvas=(12, 16, 16), norm_mode="hu_window")
+        samples.append(
+            SegmentationSample(sample_id=f"scan{idx}", group_id=f"scan{idx}", image=img_c, target=msk_c, valid=val_c)
+        )
+
+    hu_report = audit_intensity_calibration(raw_vols)
+    assert hu_report["appears_hu_calibrated"] is True
+    assert hu_report["recommended_mode"] == "hu_window"
+
+    payload = zero_payload("cbct-wsp82-v1")
+    payload["stencils"][0][0] = 6.0  # center tap
+    payload["feature_bias"][0] = -3.6  # triggers above ~0.6 scaled (~+1400 HU)
+    payload["readout"][0] = 2.0
+    payload["output_bias"] = -0.5
+
+    swaps = evaluate_segmentation_swaps(payload, samples)
+    assert swaps["intact"]["correct_dice_pct"] > 95.0
+    assert swaps["intact"]["swap_loss_pp"] > 20.0
+    audit = evaluate_segmentation_paired_audit(payload, samples)
+    assert audit["excluded_tooth_a_pct"] == pytest.approx(0.0, abs=1e-5)
+
+    # Verify scan-split axial sinus slice extraction inherits scan_id as group_id
+    sinus = np.zeros((12, 16, 16), dtype=bool)
+    sinus[8:11, 4:12, 4:12] = True
+    slices = extract_axial_sinus_slices("scan0", raw_vols[0], sinus, stride=1, min_sinus_voxels=20)
+    assert all(s.group_id == "scan0" for s in slices)
+    assert sum(s.label for s in slices) == 3
+
+
+def test_classification_metrics_and_sign_flip_detection():
+    y_true = np.array([0, 0, 1, 1])
+    assert compute_roc_auc(y_true, np.array([0.1, 0.2, 0.8, 0.9])) == pytest.approx(1.0)
+    assert compute_roc_auc(y_true, np.array([0.9, 0.8, 0.2, 0.1])) == pytest.approx(0.0)
+    assert compute_pr_auc(y_true, np.array([0.1, 0.2, 0.8, 0.9])) == pytest.approx(1.0)
+
+    # Construct a tiny classifier that detects bright central spots (and test its sign-flipped twin)
+    samples = []
+    for i in range(6):
+        img = np.full((64, 64), 0.1, dtype=np.float32)
+        label = 1 if i >= 3 else 0
+        if label == 1:
+            img[24:40, 24:40] = 0.95
+        samples.append(ClassificationSample(sample_id=f"c{i}", group_id=f"g{i}", image=img, label=label))
+
+    good = zero_payload("cls-lenet2d-v1")
+    good["conv1_weights"][0][0][2][2] = 2.0
+    good["conv1_bias"][0] = -0.8
+    good["conv2_weights"][0][0][1][1] = 2.0
+    good["head_weights"][4] = 1.0  # channel-0 global max
+    good["head_bias"] = -0.5
+
+    res_good = evaluate_classifier(good, samples)
+    assert res_good["roc_auc"] == pytest.approx(1.0)
+    assert res_good["sign_flip_flagged"] is False
+    assert res_good["margin_ablated_roc_auc"] == pytest.approx(1.0)
+
+    flipped = {**good, "head_weights": [-w for w in good["head_weights"]]}
+    res_flip = evaluate_classifier(flipped, samples)
+    assert res_flip["roc_auc"] == pytest.approx(0.0)
+    assert res_flip["sign_flip_flagged"] is True

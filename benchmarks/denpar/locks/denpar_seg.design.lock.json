@@ -1,0 +1,55 @@
+{
+  "architecture": "periapical-wsp82-v1",
+  "dataset": "denpar",
+  "parameter_count": 82,
+  "prompt_file": "seg_prompt.md",
+  "prompt_sha256": "9966523ba66210f1d5018aa60789f6ad421b8c859549ba024e57294a68aa9a19",
+  "protocol": {
+    "adam_epochs": 200,
+    "adam_lr": 0.01,
+    "arms": [
+      "frozen_wsp",
+      "random_init_adam",
+      "wsp_warmstart_adam",
+      "trained_position_only"
+    ],
+    "canvas": [
+      384,
+      384
+    ],
+    "intensity_normalization": "percentile_0.5_99.5",
+    "label_budgets_k": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "target": "periapical_tooth_union",
+    "test_sealed": true,
+    "threshold_logit": 0.0
+  },
+  "protocol_sha256": "8bcdb1811068633690af73d224bb3179a38a67535252608a5ddcd4e34a7c17b6",
+  "schema_version": "dental-wsp-design-v1",
+  "scientific_sources": [
+    {
+      "name": "Weight-Space Programming for Medical Imaging",
+      "url": "https://arxiv.org/abs/2611.12066"
+    },
+    {
+      "name": "DenPAR Annotated Intra-Oral Periapical Radiographs Dataset (Scientific Data, 2025)",
+      "url": "https://zenodo.org"
+    }
+  ],
+  "task": "denpar_seg",
+  "track": "seg"
+}

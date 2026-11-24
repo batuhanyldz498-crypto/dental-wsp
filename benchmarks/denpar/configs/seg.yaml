@@ -1,0 +1,20 @@
+task: denpar_seg
+dataset: denpar
+track: seg
+architecture: periapical-wsp82-v1
+protocol:
+  canvas: [384, 384]
+  intensity_normalization: percentile_0.5_99.5
+  target: periapical_tooth_union
+  threshold_logit: 0.0
+  label_budgets_k: [1, 2, 4, 8, 16, 32, 64]
+  seeds: [0, 1, 2, 3, 4]
+  adam_lr: 0.01
+  adam_epochs: 200
+  arms: [frozen_wsp, random_init_adam, wsp_warmstart_adam, trained_position_only]
+  test_sealed: true
+scientific_sources:
+  - name: Weight-Space Programming for Medical Imaging
+    url: https://arxiv.org/abs/2611.12066
+  - name: DenPAR Annotated Intra-Oral Periapical Radiographs Dataset (Scientific Data, 2025)
+    url: https://zenodo.org

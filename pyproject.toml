@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dental-wsp"
+version = "0.1.0"
+description = "Open-source Weight-Space Programming (WSP) benchmark for digital dentistry across 2D periapical, 2D panoramic, and 3D CBCT imaging."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "batuhanyldz498-crypto" }
+]
+keywords = [
+    "weight-space-programming",
+    "medical-imaging",
+    "digital-dentistry",
+    "dental-radiography",
+    "cbct",
+    "panoramic-xray",
+    "periapical-xray",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+torch = [
+    "torch>=2.1",
+]
+nifti = [
+    "nibabel>=5.1",
+]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.5",
+]
+all = [
+    "torch>=2.1",
+    "nibabel>=5.1",
+    "pytest>=7.4",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+dental-wsp = "wsp_core.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wsp_core*", "benchmarks*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

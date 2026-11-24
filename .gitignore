@@ -1,0 +1,56 @@
+# Python & tooling
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Raw medical imaging data (BYOD — never commit scans, masks, or archives)
+data/
+raw_data/
+datasets/
+*.nii
+*.nii.gz
+*.dcm
+*.mha
+*.mhd
+*.nrrd
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.bmp
+
+# Private study artifacts, patient splits, raw chat inboxes & local runs
+*.private.json
+*_private.json
+final_test_exposure*.json
+inbox/
+runs/
+outputs/
+overlays/
+
+# Credentials & environment secrets
+.env
+.env.*
+*secret*
+*token*
+*credential*
+*.pem
+*.key
+
+# OS noise
+.DS_Store
+Thumbs.db
