@@ -10,7 +10,7 @@ An open-source research benchmark extending **Weight-Space Programming (WSP)** (
 
 | Dataset & Modality | Track 1: Classification *(Lindholz AUC Mirror)* | Track 2: Segmentation *(82-Parameter Parity)* | Derived Engineering Probe |
 |---|---|---|---|
-| **DenPAR** *(2D Periapical)* | `denpar_cls` — Alveolar bone loss presence (`cls-lenet2d-v1`) | `denpar_seg` — Natural-tooth union (`periapical-wsp82-v1`, 82 params) | 2D ROI tooth-pixel exclusion & crestal proximity |
+| **DenPAR** *(2D Periapical)* | `denpar_cls` — Upper (Maxillary) vs. Lower (Mandibular) arch (`cls-lenet2d-v1`) | `denpar_seg` — Natural-tooth union (`periapical-wsp82-v1`, 82 params) | 2D ROI tooth-pixel exclusion & crestal proximity |
 | **AKUDENTAL** *(2D Panoramic)* | `akudental_cls` — Radiopaque restoration / implant presence (`cls-lenet2d-v1`) | `akudental_seg` — Natural-tooth union (`pano-wsp82-v1`, 82 params) | 2D arch ROI cropper audited by excluded tooth-pixel rate |
 | **DentVoxel** *(3D CBCT, 100 NIfTI)* | `dentvoxel_cls` — Scan-split axial maxillary sinus presence (`cls-lenet2d-v1`) | `dentvoxel_seg` — 3D natural-tooth union (`cbct-wsp82-v1`, 82 params) | 3D jaw/tooth ROI cropper audited by excluded tooth-voxel rate |
 

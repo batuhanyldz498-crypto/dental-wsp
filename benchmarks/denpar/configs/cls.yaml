@@ -5,9 +5,13 @@ architecture: cls-lenet2d-v1
 protocol:
   canvas: [64, 64]
   intensity_normalization: percentile_0.5_99.5
-  target: alveolar_bone_loss_presence
+  target: arch_upper_vs_lower
+  official_splits:
+    train: 650
+    val: 150
+    test: 200
   threshold_logit: 0.0
-  label_budgets_k: [2, 4, 8, 16, 32, 64]
+  label_budgets_k: [2, 4, 8, 16, 32, 64, 128]
   seeds: [0, 1, 2, 3, 4]
   adam_lr: 0.005
   adam_epochs: 200

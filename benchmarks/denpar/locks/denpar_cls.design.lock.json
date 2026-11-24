@@ -3,7 +3,7 @@
   "dataset": "denpar",
   "parameter_count": 261,
   "prompt_file": "cls_prompt.md",
-  "prompt_sha256": "a503467037f27e0cb15aaa0575603d4e1d9bbc1d86225ecc6380caf7aef55e57",
+  "prompt_sha256": "f23c4718354aec800cc5fa69cd5ab1affa14b22234bb665143bd4ffd1fe02c2e",
   "protocol": {
     "adam_epochs": 200,
     "adam_lr": 0.005,
@@ -23,8 +23,14 @@
       8,
       16,
       32,
-      64
+      64,
+      128
     ],
+    "official_splits": {
+      "test": 200,
+      "train": 650,
+      "val": 150
+    },
     "seeds": [
       0,
       1,
@@ -32,11 +38,11 @@
       3,
       4
     ],
-    "target": "alveolar_bone_loss_presence",
+    "target": "arch_upper_vs_lower",
     "test_sealed": true,
     "threshold_logit": 0.0
   },
-  "protocol_sha256": "18ccece9e4af025047bd42d3f074d8b70e4dd940b3e081574b9b70617a98d918",
+  "protocol_sha256": "a404e232306930169a5e940d2dbbbe6add2f049a9e3da45a63b2711a832861d9",
   "schema_version": "dental-wsp-design-v1",
   "scientific_sources": [
     {

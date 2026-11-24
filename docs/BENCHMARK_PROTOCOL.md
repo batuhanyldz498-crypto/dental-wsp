@@ -49,8 +49,8 @@ Foreground prediction uses inclusive **logit ≥ 0** restricted to valid unpadde
 2. **DenPAR (`denpar_seg`, `denpar_cls`):**
    - Grayscale `0.5th–99.5th` percentile clip → `[0, 1]`.
    - `denpar_seg`: aspect-preserving resize onto `384 × 384` canvas with valid-pixel mask; target = binary union of tooth masks.
-   - `denpar_cls`: `64 × 64` grayscale; target = binary alveolar bone-loss presence (or documented bone-loss severity threshold).
-   - Splits grouped by patient/radiograph group ID (60% train / 20% val / 20% test).
+   - `denpar_cls`: `64 × 64` grayscale; target = binary `Arch` (`Upper`/Maxillary = 1 vs. `Lower`/Mandibular = 0) from DenPAR's official `Characteristics of radiographs included.xlsx`.
+   - Uses DenPAR's official splits (`Training`: 650, `Validation`: 150, sealed `Testing`: 200).
 3. **DentVoxel (`dentvoxel_seg`, `dentvoxel_cls`):**
    - 100 large-FOV NIfTI CBCT scans with 38 instance anatomical labels.
    - **Intensity audit gate:** Before locking prompts, `dental-wsp verify-dataset dentvoxel` audits scan intensity quantiles across the cohort. Primary normalization uses fixed dental Hounsfield windowing `[-1000, 3000]` → `[0, 1]` if scans are HU-calibrated; if scans are uncalibrated grayscale, the protocol locks per-volume `0.5th–99.5th` percentile clipping → `[0, 1]` and records that choice in `design.lock.json`.
