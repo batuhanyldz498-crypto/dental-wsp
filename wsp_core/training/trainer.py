@@ -44,6 +44,38 @@ def sample_nested_group_budgets(
     return result
 
 
+def sample_stratified_cls_budgets(
+    samples: list[ClassificationSample],
+    budgets: list[int],
+    seed: int,
+) -> dict[int, list[str]]:
+    """Draw nested group budgets for binary classification guaranteeing >=1 pos and >=1 neg group when K >= 2."""
+    group_labels: dict[str, set[int]] = {}
+    for s in samples:
+        group_labels.setdefault(s.group_id, set()).add(int(s.label))
+
+    pos_groups = sorted(g for g, ls in group_labels.items() if 1 in ls and 0 not in ls)
+    neg_groups = sorted(g for g, ls in group_labels.items() if 0 in ls and 1 not in ls)
+    mixed_groups = sorted(g for g, ls in group_labels.items() if 0 in ls and 1 in ls)
+
+    rng = np.random.default_rng(seed)
+    if pos_groups and neg_groups:
+        pos_perm = rng.permutation(pos_groups).tolist()
+        neg_perm = rng.permutation(neg_groups).tolist()
+        # Anchor the first two positions with 1 positive and 1 negative group, then shuffle remaining groups.
+        rest = pos_perm[1:] + neg_perm[1:] + mixed_groups
+        rest_perm = rng.permutation(rest).tolist() if rest else []
+        ordered = [pos_perm[0], neg_perm[0]] + rest_perm
+    else:
+        ordered = rng.permutation(sorted(group_labels.keys())).tolist()
+
+    result: dict[int, list[str]] = {}
+    for k in sorted(set(budgets)):
+        require(k >= 1, f"Label budget K must be >= 1, got {k}.")
+        result[k] = ordered[: min(k, len(ordered))]
+    return result
+
+
 def _soft_dice_loss(logits: Any, targets: Any, valid: Any, eps: float = 1e-6) -> Any:
     import torch
 

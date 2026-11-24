@@ -9,12 +9,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from wsp_core.evaluation.classification import ClassificationSample
 from wsp_core.evaluation.segmentation import SegmentationSample
 from wsp_core.guards import StudyStop, exposure_guard, require_split_allowed
 from wsp_core.schemas import zero_payload
 from wsp_core.training.trainer import (
     TrainingConfig,
     sample_nested_group_budgets,
+    sample_stratified_cls_budgets,
     train_segmentation_budget,
 )
 
@@ -57,6 +59,17 @@ def test_nested_group_budgets_strict_nesting_and_determinism():
     assert b1 == b2
     assert set(b1[1]) < set(b1[2]) < set(b1[4]) < set(b1[8]) < set(b1[16])
     assert len(b1[8]) == 8
+
+
+def test_stratified_cls_budgets_guarantee_both_classes_at_k2():
+    dummy = np.zeros((64, 64), dtype=np.float32)
+    samples = [ClassificationSample(f"s{i}", f"g{i}", dummy, 1 if i < 15 else 0) for i in range(20)]
+    by_g = {s.group_id: s.label for s in samples}
+    for seed in range(10):
+        nested = sample_stratified_cls_budgets(samples, [2, 4, 8, 16], seed=seed)
+        labels_k2 = {by_g[g] for g in nested[2]}
+        assert labels_k2 == {0, 1}
+        assert set(nested[2]) < set(nested[4]) < set(nested[8]) < set(nested[16])
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch optional extra not installed locally")

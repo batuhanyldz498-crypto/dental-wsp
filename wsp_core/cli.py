@@ -91,6 +91,66 @@ def _cmd_verify_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_cls_budgets(args: argparse.Namespace) -> int:
+    root = Path(args.repo_root).resolve() if args.repo_root else REPO_ROOT
+    spec = get_task_spec(args.task)
+    if spec.track != "cls":
+        print(f"Error: {args.task} is a segmentation task, not classification.", file=sys.stderr)
+        return 1
+    cfg = spec.load_config(root)
+    proto = cfg["protocol"]
+    data_dir = Path(args.data_dir)
+
+    if spec.dataset == "akudental":
+        from benchmarks.akudental.adapter import load_akudental_cls_public
+
+        train_samples = load_akudental_cls_public(data_dir, split="train")
+        val_samples = load_akudental_cls_public(data_dir, split="val")
+    elif spec.dataset == "denpar":
+        from benchmarks.denpar.adapter import load_denpar_cls
+
+        train_samples = load_denpar_cls(data_dir, split="train")
+        val_samples = load_denpar_cls(data_dir, split="val")
+    else:
+        from benchmarks.dentvoxel.adapter import load_dentvoxel_cls
+
+        if not args.split_file:
+            print("Error: --split-file is required for dentvoxel_cls.", file=sys.stderr)
+            return 1
+        train_samples = load_dentvoxel_cls(data_dir, args.split_file, split="train")
+        val_samples = load_dentvoxel_cls(data_dir, args.split_file, split="val")
+
+    budgets = [int(x) for x in args.budgets.split(",")] if args.budgets else list(proto.get("label_budgets_k", proto.get("label_budgets_k_scans")))
+    if args.include_full_train:
+        n_groups = len({s.group_id for s in train_samples})
+        if n_groups not in budgets:
+            budgets.append(n_groups)
+    seeds = [int(x) for x in args.seeds.split(",")] if args.seeds else list(proto["seeds"])
+
+    resp_path = (
+        Path(args.responses_lock)
+        if args.responses_lock
+        else spec.design_lock_path(root).with_name(f"{spec.task}.responses.lock.json")
+    )
+    from wsp_core.training.runner import run_classification_three_arm_validation
+
+    _, summary_df = run_classification_three_arm_validation(
+        task=spec.task,
+        train_samples=train_samples,
+        val_samples=val_samples,
+        design_lock_path=spec.design_lock_path(root),
+        responses_lock_path=resp_path,
+        budgets=budgets,
+        seeds=seeds,
+        epochs=args.epochs or int(proto["adam_epochs"]),
+        lr=args.lr or float(proto["adam_lr"]),
+        device=args.device,
+        out_dir=Path(args.out_dir),
+    )
+    print(summary_df.round(4).to_string(index=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dental-wsp", description="Digital dentistry WSP benchmark CLI.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -121,6 +181,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_ver.add_argument("--data-dir", required=True)
     p_ver.add_argument("--max-scans", type=int, default=10, help="Max CBCT scans to sample for HU audit.")
     p_ver.set_defaults(func=_cmd_verify_dataset)
+
+    p_cls = sub.add_parser("run-cls-budgets", help="Run 3-arm classification validation (Frozen, Random-Init, WSP Warm-Start).")
+    p_cls.add_argument("task", choices=("akudental_cls", "denpar_cls", "dentvoxel_cls"))
+    p_cls.add_argument("--data-dir", required=True)
+    p_cls.add_argument("--out-dir", required=True, help="Output directory for CSVs and learning-curve PNG.")
+    p_cls.add_argument("--responses-lock", default=None)
+    p_cls.add_argument("--split-file", default=None, help="Required for dentvoxel_cls.")
+    p_cls.add_argument("--budgets", default=None, help="Comma-separated K values (defaults to task config).")
+    p_cls.add_argument("--include-full-train", action="store_true", help="Also include full training-group count.")
+    p_cls.add_argument("--seeds", default=None, help="Comma-separated random seeds (defaults to task config).")
+    p_cls.add_argument("--epochs", type=int, default=None)
+    p_cls.add_argument("--lr", type=float, default=None)
+    p_cls.add_argument("--device", default="cpu")
+    p_cls.add_argument("--repo-root", default=None)
+    p_cls.set_defaults(func=_cmd_run_cls_budgets)
 
     return parser
 
