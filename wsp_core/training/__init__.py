@@ -2,7 +2,9 @@
 
 from wsp_core.training.runner import (
     plot_classification_learning_curve,
+    plot_segmentation_learning_curve,
     run_classification_three_arm_validation,
+    run_segmentation_three_arm_validation,
 )
 from wsp_core.training.trainer import (
     TrainingConfig,
@@ -20,4 +22,6 @@ __all__ = [
     "train_classification_budget",
     "run_classification_three_arm_validation",
     "plot_classification_learning_curve",
+    "run_segmentation_three_arm_validation",
+    "plot_segmentation_learning_curve",
 ]

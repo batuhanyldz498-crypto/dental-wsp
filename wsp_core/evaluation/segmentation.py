@@ -210,7 +210,8 @@ def evaluate_segmentation_swaps(
     """Score intact (A), image-only (B), and position-only (C) correct-vs-swapped Dice gaps."""
     ablation = evaluate_segmentation_ablation(payload, samples, threshold=threshold)
     donors = _eligible_swap_donors(samples)
-    require(all(donors.values()), "At least one sample lacks a cross-group donor with identical valid mask.")
+    eligible = [s for s in samples if donors[s.sample_id]]
+    require(len(eligible) >= 2, "Need at least two samples sharing a valid-pixel mask for paired swaps.")
 
     truth = {s.sample_id: ((s.target > 0) & (s.valid > 0)) for s in samples}
     ref_area = {sid: int(mask.sum()) for sid, mask in truth.items()}
@@ -224,7 +225,7 @@ def evaluate_segmentation_swaps(
 
         by_group_own: dict[str, list[float]] = defaultdict(list)
         by_group_other: dict[str, list[float]] = defaultdict(list)
-        for s in samples:
+        for s in eligible:
             own_val = _dice(s.sample_id, s.sample_id)
             other_val = float(np.mean([_dice(s.sample_id, d) for d in donors[s.sample_id]]))
             by_group_own[s.group_id].append(own_val)
@@ -252,8 +253,12 @@ def evaluate_segmentation_swaps(
     )
     grid_effect_pp = sum_a["group_losses_pp"] - sum_b["group_losses_pp"]
     return {
-        "pair_count": sum(len(v) for v in donors.values()),
+        "pair_count": sum(len(donors[s.sample_id]) for s in eligible),
         "groups": len(sum_a["group_losses_pp"]),
+        "total_groups": len({s.group_id for s in samples}),
+        "full_cohort_dice_a_pct": float(100.0 * ablation["A"]["metrics"]["dice"]),
+        "full_cohort_dice_b_pct": float(100.0 * ablation["B"]["metrics"]["dice"]),
+        "full_cohort_dice_c_pct": float(100.0 * ablation["C"]["metrics"]["dice"]),
         "intact": {k: v for k, v in sum_a.items() if k != "group_losses_pp"},
         "image_only": {k: v for k, v in sum_b.items() if k != "group_losses_pp"},
         "position_only": {k: v for k, v in sum_c.items() if k != "group_losses_pp"},
