@@ -380,11 +380,15 @@ def run_segmentation_three_arm_validation(
         by_group.setdefault(s.group_id, []).append(s)
     all_groups = sorted(by_group.keys())
 
-    rep_payloads: dict[str, dict[str, Any]] = {}
+    rep_path = (out_dir / f"{task}_representative_payloads.json") if out_dir is not None else None
+    if resume and rep_path is not None and rep_path.is_file():
+        rep_payloads: dict[str, dict[str, Any]] = json.loads(rep_path.read_text(encoding="utf-8"))
+    else:
+        rep_payloads = {}
     max_k = max(budgets)
     rep_seed = seeds[0]
     first_slot = next(iter(frozen_models))
-    rep_payloads["Frozen WSP (K=0)"] = frozen_models[first_slot]
+    rep_payloads.setdefault(f"Frozen WSP ({first_slot}, K=0)", frozen_models[first_slot])
 
     for seed in seeds:
         nested = sample_nested_group_budgets(all_groups, budgets, seed=seed)
@@ -455,13 +459,14 @@ def run_segmentation_three_arm_validation(
                 )
                 done.add(warm_key)
             _flush_runs_csv(rows, runs_csv)
+            if rep_path is not None and seed == rep_seed and k == max_k and len(rep_payloads) >= 2:
+                rep_path.parent.mkdir(parents=True, exist_ok=True)
+                rep_path.write_text(json.dumps(rep_payloads, indent=2), encoding="utf-8")
             print(f"[{task}] Completed & checkpointed seed={seed}, K={k}")
 
-    if out_dir is not None and len(rep_payloads) >= 2:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / f"{task}_representative_payloads.json").write_text(
-            json.dumps(rep_payloads, indent=2), encoding="utf-8"
-        )
+    if rep_path is not None and len(rep_payloads) >= 2:
+        rep_path.parent.mkdir(parents=True, exist_ok=True)
+        rep_path.write_text(json.dumps(rep_payloads, indent=2), encoding="utf-8")
 
     runs_df = pd.DataFrame(rows)
     summary_df = (
