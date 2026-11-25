@@ -361,25 +361,6 @@ def run_segmentation_three_arm_validation(
     if done:
         print(f"[{task}] Resuming from {runs_csv} ({len(done)} completed runs skipped)")
 
-    val_cache = _precompute_seg_val_cache(val_samples)
-    val_x = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in val_samples])
-
-    # Arm 1: Frozen WSP (K = 0)
-    for slot, payload in frozen_models.items():
-        key = ("frozen_wsp", 0, -1, slot)
-        if key in done:
-            continue
-        metrics = _score_seg_payload_fast(architecture, payload, val_x, val_samples, val_cache, device)
-        rows.append({"task": task, "arm": "frozen_wsp", "k_budget": 0, "seed": -1, "init_slot": slot, **metrics})
-        done.add(key)
-    _flush_runs_csv(rows, runs_csv)
-    print(f"[{task}] Scored Arm 1 Frozen WSP ({len(frozen_models)} replies)")
-
-    by_group: dict[str, list[SegmentationSample]] = {}
-    for s in train_samples:
-        by_group.setdefault(s.group_id, []).append(s)
-    all_groups = sorted(by_group.keys())
-
     rep_path = (out_dir / f"{task}_representative_payloads.json") if out_dir is not None else None
     if resume and rep_path is not None and rep_path.is_file():
         rep_payloads: dict[str, dict[str, Any]] = json.loads(rep_path.read_text(encoding="utf-8"))
@@ -387,8 +368,35 @@ def run_segmentation_three_arm_validation(
         rep_payloads = {}
     max_k = max(budgets)
     rep_seed = seeds[0]
-    first_slot = next(iter(frozen_models))
-    rep_payloads.setdefault(f"Frozen WSP ({first_slot}, K=0)", frozen_models[first_slot])
+
+    val_cache = _precompute_seg_val_cache(val_samples)
+    val_x = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in val_samples])
+
+    # Arm 1: Frozen WSP (K = 0)
+    frozen_scored: list[tuple[float, str, dict[str, Any]]] = []
+    for slot, payload in frozen_models.items():
+        key = ("frozen_wsp", 0, -1, slot)
+        if key in done:
+            existing_row = next(
+                r for r in rows if (str(r["arm"]), int(r["k_budget"]), int(r["seed"]), str(r["init_slot"])) == key
+            )
+            frozen_scored.append((float(existing_row["dice_pct"]), slot, payload))
+            continue
+        metrics = _score_seg_payload_fast(architecture, payload, val_x, val_samples, val_cache, device)
+        rows.append({"task": task, "arm": "frozen_wsp", "k_budget": 0, "seed": -1, "init_slot": slot, **metrics})
+        frozen_scored.append((float(metrics["dice_pct"]), slot, payload))
+        done.add(key)
+    _flush_runs_csv(rows, runs_csv)
+    if frozen_scored and not any(k.startswith("Frozen WSP") for k in rep_payloads):
+        frozen_scored.sort(key=lambda item: item[0])
+        _, med_slot, med_payload = frozen_scored[len(frozen_scored) // 2]
+        rep_payloads[f"Frozen WSP ({med_slot}, K=0)"] = med_payload
+    print(f"[{task}] Scored Arm 1 Frozen WSP ({len(frozen_models)} replies)")
+
+    by_group: dict[str, list[SegmentationSample]] = {}
+    for s in train_samples:
+        by_group.setdefault(s.group_id, []).append(s)
+    all_groups = sorted(by_group.keys())
 
     for seed in seeds:
         nested = sample_nested_group_budgets(all_groups, budgets, seed=seed)
@@ -440,13 +448,15 @@ def run_segmentation_three_arm_validation(
                 done.add(rand_key)
 
             # Arm 3: WSP Warm-Start + Adam (every valid frozen reply, no cherry-picking)
+            warm_scored_rep: list[tuple[float, str, dict[str, Any]]] = []
             for slot, frozen_payload in frozen_models.items():
                 warm_key = ("wsp_warmstart_adam", k, seed, slot)
                 if warm_key in done:
                     continue
                 warm_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=frozen_payload)
-                if seed == rep_seed and k == max_k and slot == first_slot:
-                    rep_payloads[f"WSP Warm-Start + Adam (K={k})"] = warm_payload
+                warm_metrics = _score_seg_payload_fast(architecture, warm_payload, val_x, val_samples, val_cache, device)
+                if seed == rep_seed and k == max_k:
+                    warm_scored_rep.append((float(warm_metrics["dice_pct"]), slot, warm_payload))
                 rows.append(
                     {
                         "task": task,
@@ -454,10 +464,14 @@ def run_segmentation_three_arm_validation(
                         "k_budget": k,
                         "seed": seed,
                         "init_slot": slot,
-                        **_score_seg_payload_fast(architecture, warm_payload, val_x, val_samples, val_cache, device),
+                        **warm_metrics,
                     }
                 )
                 done.add(warm_key)
+            if warm_scored_rep:
+                warm_scored_rep.sort(key=lambda item: item[0])
+                _, med_w_slot, med_w_payload = warm_scored_rep[len(warm_scored_rep) // 2]
+                rep_payloads[f"WSP Warm-Start ({med_w_slot}, K={k})"] = med_w_payload
             _flush_runs_csv(rows, runs_csv)
             if rep_path is not None and seed == rep_seed and k == max_k and len(rep_payloads) >= 2:
                 rep_path.parent.mkdir(parents=True, exist_ok=True)
