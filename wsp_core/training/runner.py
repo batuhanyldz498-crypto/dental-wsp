@@ -27,6 +27,26 @@ from wsp_core.training.trainer import (
 )
 
 
+def _load_existing_runs(runs_csv: Path | None) -> tuple[list[dict[str, Any]], set[tuple[str, int, int, str]]]:
+    """Load any previously checkpointed validation runs so interrupted Colab sessions resume cleanly."""
+    if runs_csv is None or not runs_csv.is_file():
+        return [], set()
+    df = pd.read_csv(runs_csv)
+    rows = df.to_dict(orient="records")
+    done = {
+        (str(r["arm"]), int(r["k_budget"]), int(r["seed"]), str(r["init_slot"]))
+        for r in rows
+    }
+    return rows, done
+
+
+def _flush_runs_csv(rows: list[dict[str, Any]], runs_csv: Path | None) -> None:
+    if runs_csv is None or not rows:
+        return
+    runs_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(runs_csv, index=False)
+
+
 def run_classification_three_arm_validation(
     *,
     task: str,
@@ -40,6 +60,7 @@ def run_classification_three_arm_validation(
     lr: float = 5e-3,
     device: str = "cpu",
     out_dir: Path | None = None,
+    resume: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run Arm 1 (Frozen WSP), Arm 2 (Random-Init Adam), and Arm 3 (WSP Warm-Start Adam) on validation."""
     design_bytes = design_lock_path.read_bytes()
@@ -48,10 +69,16 @@ def run_classification_three_arm_validation(
     frozen_models = verify_response_lock(design, design_bytes, resp, expected_architecture="cls-lenet2d-v1")
     require(len(frozen_models) > 0, f"No valid frozen replies found in {responses_lock_path}")
 
-    rows: list[dict[str, Any]] = []
+    runs_csv = (out_dir / f"{task}_val_runs.csv") if out_dir is not None else None
+    rows, done = _load_existing_runs(runs_csv) if resume else ([], set())
+    if done:
+        print(f"[{task}] Resuming from {runs_csv} ({len(done)} completed runs skipped)")
 
     # --- Arm 1: Frozen WSP (K = 0, zero optimizer steps) ---
     for slot, payload in frozen_models.items():
+        key = ("frozen_wsp", 0, -1, slot)
+        if key in done:
+            continue
         metrics = evaluate_classifier(payload, val_samples)
         rows.append(
             {
@@ -63,6 +90,8 @@ def run_classification_three_arm_validation(
                 **metrics,
             }
         )
+        done.add(key)
+    _flush_runs_csv(rows, runs_csv)
 
     # Pre-index training samples by group_id for fast budget subsetting
     by_group: dict[str, list[ClassificationSample]] = {}
@@ -76,21 +105,27 @@ def run_classification_three_arm_validation(
             cfg = TrainingConfig(epochs=epochs, lr=lr, seed=seed, device=device)
 
             # --- Arm 2: Random-Init + Adam ---
-            rand_payload, _ = train_classification_budget(sub_train, cfg, init_payload=None)
-            rand_metrics = evaluate_classifier(rand_payload, val_samples)
-            rows.append(
-                {
-                    "task": task,
-                    "arm": "random_init_adam",
-                    "k_budget": k,
-                    "seed": seed,
-                    "init_slot": "random",
-                    **rand_metrics,
-                }
-            )
+            rand_key = ("random_init_adam", k, seed, "random")
+            if rand_key not in done:
+                rand_payload, _ = train_classification_budget(sub_train, cfg, init_payload=None)
+                rand_metrics = evaluate_classifier(rand_payload, val_samples)
+                rows.append(
+                    {
+                        "task": task,
+                        "arm": "random_init_adam",
+                        "k_budget": k,
+                        "seed": seed,
+                        "init_slot": "random",
+                        **rand_metrics,
+                    }
+                )
+                done.add(rand_key)
 
             # --- Arm 3: WSP Warm-Start + Adam (every valid frozen reply, no cherry-picking) ---
             for slot, frozen_payload in frozen_models.items():
+                warm_key = ("wsp_warmstart_adam", k, seed, slot)
+                if warm_key in done:
+                    continue
                 warm_payload, _ = train_classification_budget(sub_train, cfg, init_payload=frozen_payload)
                 warm_metrics = evaluate_classifier(warm_payload, val_samples)
                 rows.append(
@@ -103,6 +138,8 @@ def run_classification_three_arm_validation(
                         **warm_metrics,
                     }
                 )
+                done.add(warm_key)
+            _flush_runs_csv(rows, runs_csv)
 
     runs_df = pd.DataFrame(rows)
     summary_df = (
@@ -302,8 +339,12 @@ def run_segmentation_three_arm_validation(
     lr: float = 1e-2,
     device: str = "cpu",
     out_dir: Path | None = None,
+    resume: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run Frozen WSP (K=0), Random-Init Adam, WSP Warm-Start Adam, and Trained Position-Only on validation."""
+    """Run Frozen WSP (K=0), Random-Init Adam, WSP Warm-Start Adam, and Trained Position-Only on validation.
+
+    Checkpoints `runs_csv` after every `(seed, K)` so Colab disconnects resume automatically without rework.
+    """
     import torch
 
     design_bytes = design_lock_path.read_bytes()
@@ -312,14 +353,23 @@ def run_segmentation_three_arm_validation(
     frozen_models = verify_response_lock(design, design_bytes, resp, expected_architecture=architecture)
     require(len(frozen_models) > 0, f"No valid frozen replies found in {responses_lock_path}")
 
+    runs_csv = (out_dir / f"{task}_val_runs.csv") if out_dir is not None else None
+    rows, done = _load_existing_runs(runs_csv) if resume else ([], set())
+    if done:
+        print(f"[{task}] Resuming from {runs_csv} ({len(done)} completed runs skipped)")
+
     val_cache = _precompute_seg_val_cache(val_samples)
     val_x = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in val_samples])
-    rows: list[dict[str, Any]] = []
 
     # Arm 1: Frozen WSP (K = 0)
     for slot, payload in frozen_models.items():
+        key = ("frozen_wsp", 0, -1, slot)
+        if key in done:
+            continue
         metrics = _score_seg_payload_fast(architecture, payload, val_x, val_samples, val_cache, device)
         rows.append({"task": task, "arm": "frozen_wsp", "k_budget": 0, "seed": -1, "init_slot": slot, **metrics})
+        done.add(key)
+    _flush_runs_csv(rows, runs_csv)
     print(f"[{task}] Scored Arm 1 Frozen WSP ({len(frozen_models)} replies)")
 
     by_group: dict[str, list[SegmentationSample]] = {}
@@ -334,33 +384,42 @@ def run_segmentation_three_arm_validation(
             cfg = TrainingConfig(epochs=epochs, lr=lr, seed=seed, device=device)
 
             # Control Arm: Trained Position-Only (spatial grid + output bias only)
-            pos_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, position_only=True)
-            rows.append(
-                {
-                    "task": task,
-                    "arm": "trained_position_only",
-                    "k_budget": k,
-                    "seed": seed,
-                    "init_slot": "position_only",
-                    **_score_seg_payload_fast(architecture, pos_payload, val_x, val_samples, val_cache, device),
-                }
-            )
+            pos_key = ("trained_position_only", k, seed, "position_only")
+            if pos_key not in done:
+                pos_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, position_only=True)
+                rows.append(
+                    {
+                        "task": task,
+                        "arm": "trained_position_only",
+                        "k_budget": k,
+                        "seed": seed,
+                        "init_slot": "position_only",
+                        **_score_seg_payload_fast(architecture, pos_payload, val_x, val_samples, val_cache, device),
+                    }
+                )
+                done.add(pos_key)
 
             # Arm 2: Random-Init + Adam
-            rand_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=None)
-            rows.append(
-                {
-                    "task": task,
-                    "arm": "random_init_adam",
-                    "k_budget": k,
-                    "seed": seed,
-                    "init_slot": "random",
-                    **_score_seg_payload_fast(architecture, rand_payload, val_x, val_samples, val_cache, device),
-                }
-            )
+            rand_key = ("random_init_adam", k, seed, "random")
+            if rand_key not in done:
+                rand_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=None)
+                rows.append(
+                    {
+                        "task": task,
+                        "arm": "random_init_adam",
+                        "k_budget": k,
+                        "seed": seed,
+                        "init_slot": "random",
+                        **_score_seg_payload_fast(architecture, rand_payload, val_x, val_samples, val_cache, device),
+                    }
+                )
+                done.add(rand_key)
 
             # Arm 3: WSP Warm-Start + Adam (every valid frozen reply, no cherry-picking)
             for slot, frozen_payload in frozen_models.items():
+                warm_key = ("wsp_warmstart_adam", k, seed, slot)
+                if warm_key in done:
+                    continue
                 warm_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=frozen_payload)
                 rows.append(
                     {
@@ -372,7 +431,9 @@ def run_segmentation_three_arm_validation(
                         **_score_seg_payload_fast(architecture, warm_payload, val_x, val_samples, val_cache, device),
                     }
                 )
-            print(f"[{task}] Completed seed={seed}, K={k}")
+                done.add(warm_key)
+            _flush_runs_csv(rows, runs_csv)
+            print(f"[{task}] Completed & checkpointed seed={seed}, K={k}")
 
     runs_df = pd.DataFrame(rows)
     summary_df = (

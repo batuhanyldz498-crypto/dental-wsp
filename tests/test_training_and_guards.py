@@ -13,6 +13,7 @@ from wsp_core.evaluation.classification import ClassificationSample
 from wsp_core.evaluation.segmentation import SegmentationSample
 from wsp_core.guards import StudyStop, exposure_guard, require_split_allowed
 from wsp_core.schemas import zero_payload
+from wsp_core.training.runner import _flush_runs_csv, _load_existing_runs
 from wsp_core.training.trainer import (
     TrainingConfig,
     sample_nested_group_budgets,
@@ -59,6 +60,22 @@ def test_nested_group_budgets_strict_nesting_and_determinism():
     assert b1 == b2
     assert set(b1[1]) < set(b1[2]) < set(b1[4]) < set(b1[8]) < set(b1[16])
     assert len(b1[8]) == 8
+
+
+def test_incremental_checkpoint_resume_helper(tmp_path: Path):
+    csv_path = tmp_path / "runs.csv"
+    rows, done = _load_existing_runs(csv_path)
+    assert rows == [] and done == set()
+
+    sample_rows = [
+        {"task": "akudental_seg", "arm": "frozen_wsp", "k_budget": 0, "seed": -1, "init_slot": "astra_1", "dice_pct": 49.7},
+        {"task": "akudental_seg", "arm": "random_init_adam", "k_budget": 4, "seed": 0, "init_slot": "random", "dice_pct": 55.2},
+    ]
+    _flush_runs_csv(sample_rows, csv_path)
+    reloaded, done2 = _load_existing_runs(csv_path)
+    assert len(reloaded) == 2
+    assert ("frozen_wsp", 0, -1, "astra_1") in done2
+    assert ("random_init_adam", 4, 0, "random") in done2
 
 
 def test_stratified_cls_budgets_guarantee_both_classes_at_k2():
