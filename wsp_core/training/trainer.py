@@ -24,6 +24,8 @@ class TrainingConfig:
     weight_decay: float = 0.0
     seed: int = 0
     device: str = "cpu"
+    batch_size: int = 16
+    cosine_lr: bool = True
 
 
 def sample_nested_group_budgets(
@@ -118,22 +120,44 @@ def train_segmentation_budget(
     trainable = [p for p in model.parameters() if p.requires_grad]
     require(len(trainable) > 0, "No trainable parameters found.")
     optimizer = torch.optim.Adam(trainable, lr=config.lr, weight_decay=config.weight_decay)
+    scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, config.epochs), eta_min=config.lr * 0.05)
+        if config.cosine_lr
+        else None
+    )
 
-    x_batch = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in train_samples]).to(device)
-    y_batch = torch.stack([torch.from_numpy((s.target > 0).astype(np.float32)).unsqueeze(0) for s in train_samples]).to(device)
-    v_batch = torch.stack([torch.from_numpy((s.valid > 0).astype(np.float32)).unsqueeze(0) for s in train_samples]).to(device)
+    x_all = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in train_samples])
+    y_all = torch.stack([torch.from_numpy((s.target > 0).astype(np.float32)).unsqueeze(0) for s in train_samples])
+    v_all = torch.stack([torch.from_numpy((s.valid > 0).astype(np.float32)).unsqueeze(0) for s in train_samples])
+
+    n_samples = len(train_samples)
+    default_bs = 4 if architecture == "cbct-wsp82-v1" else config.batch_size
+    bs = max(1, min(default_bs, n_samples))
+    gen = torch.Generator().manual_seed(config.seed)
 
     losses: list[float] = []
     model.train()
     for _ in range(config.epochs):
-        optimizer.zero_grad()
-        logits = model(x_batch)
-        bce = (F.binary_cross_entropy_with_logits(logits, y_batch, reduction="none") * v_batch).sum() / v_batch.sum().clamp_min(1.0)
-        dice = _soft_dice_loss(logits, y_batch, v_batch)
-        loss = 0.5 * bce + 0.5 * dice
-        loss.backward()
-        optimizer.step()
-        losses.append(float(loss.detach().cpu().item()))
+        perm = torch.randperm(n_samples, generator=gen) if n_samples > bs else torch.arange(n_samples)
+        epoch_loss = 0.0
+        n_steps = 0
+        for start in range(0, n_samples, bs):
+            idx = perm[start : start + bs]
+            xb = x_all[idx].to(device)
+            yb = y_all[idx].to(device)
+            vb = v_all[idx].to(device)
+            optimizer.zero_grad()
+            logits = model(xb)
+            bce = (F.binary_cross_entropy_with_logits(logits, yb, reduction="none") * vb).sum() / vb.sum().clamp_min(1.0)
+            dice = _soft_dice_loss(logits, yb, vb)
+            loss = 0.5 * bce + 0.5 * dice
+            loss.backward()
+            optimizer.step()
+            epoch_loss += float(loss.detach().cpu().item())
+            n_steps += 1
+        if scheduler is not None:
+            scheduler.step()
+        losses.append(epoch_loss / max(1, n_steps))
 
     return model.export_to_wsp_dict(), losses
 

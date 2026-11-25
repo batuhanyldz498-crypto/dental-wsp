@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -337,6 +338,8 @@ def run_segmentation_three_arm_validation(
     seeds: list[int],
     epochs: int = 200,
     lr: float = 1e-2,
+    batch_size: int = 16,
+    cosine_lr: bool = True,
     device: str = "cpu",
     out_dir: Path | None = None,
     resume: bool = True,
@@ -377,16 +380,31 @@ def run_segmentation_three_arm_validation(
         by_group.setdefault(s.group_id, []).append(s)
     all_groups = sorted(by_group.keys())
 
+    rep_payloads: dict[str, dict[str, Any]] = {}
+    max_k = max(budgets)
+    rep_seed = seeds[0]
+    first_slot = next(iter(frozen_models))
+    rep_payloads["Frozen WSP (K=0)"] = frozen_models[first_slot]
+
     for seed in seeds:
         nested = sample_nested_group_budgets(all_groups, budgets, seed=seed)
         for k, selected_groups in nested.items():
             sub_train = [s for g in selected_groups for s in by_group[g]]
-            cfg = TrainingConfig(epochs=epochs, lr=lr, seed=seed, device=device)
+            cfg = TrainingConfig(
+                epochs=epochs,
+                lr=lr,
+                seed=seed,
+                device=device,
+                batch_size=batch_size,
+                cosine_lr=cosine_lr,
+            )
 
             # Control Arm: Trained Position-Only (spatial grid + output bias only)
             pos_key = ("trained_position_only", k, seed, "position_only")
             if pos_key not in done:
                 pos_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, position_only=True)
+                if seed == rep_seed and k == max_k:
+                    rep_payloads[f"Trained Position-Only (K={k})"] = pos_payload
                 rows.append(
                     {
                         "task": task,
@@ -403,6 +421,8 @@ def run_segmentation_three_arm_validation(
             rand_key = ("random_init_adam", k, seed, "random")
             if rand_key not in done:
                 rand_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=None)
+                if seed == rep_seed and k == max_k:
+                    rep_payloads[f"Random-Init + Adam (K={k})"] = rand_payload
                 rows.append(
                     {
                         "task": task,
@@ -421,6 +441,8 @@ def run_segmentation_three_arm_validation(
                 if warm_key in done:
                     continue
                 warm_payload, _ = train_segmentation_budget(architecture, sub_train, cfg, init_payload=frozen_payload)
+                if seed == rep_seed and k == max_k and slot == first_slot:
+                    rep_payloads[f"WSP Warm-Start + Adam (K={k})"] = warm_payload
                 rows.append(
                     {
                         "task": task,
@@ -434,6 +456,12 @@ def run_segmentation_three_arm_validation(
                 done.add(warm_key)
             _flush_runs_csv(rows, runs_csv)
             print(f"[{task}] Completed & checkpointed seed={seed}, K={k}")
+
+    if out_dir is not None and len(rep_payloads) >= 2:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{task}_representative_payloads.json").write_text(
+            json.dumps(rep_payloads, indent=2), encoding="utf-8"
+        )
 
     runs_df = pd.DataFrame(rows)
     summary_df = (

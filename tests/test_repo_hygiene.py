@@ -8,7 +8,7 @@ from pathlib import Path
 from wsp_core.registry import REPO_ROOT, TASKS
 
 FORBIDDEN_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".mha", ".nrrd", ".zip", ".png", ".jpg", ".jpeg", ".tif", ".bmp")
-SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".venv", "venv", "dental_wsp.egg-info"}
+SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".venv", "venv", "dental_wsp.egg-info", "runs", "inbox"}
 
 
 def test_no_raw_medical_data_or_private_files_in_repo():

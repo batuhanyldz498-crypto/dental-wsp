@@ -109,7 +109,7 @@ def build_torch_seg_wsp82_3d(position_only: bool = False) -> Any:
 
         def reset_parameters(self) -> None:
             nn.init.uniform_(self.stencils, -0.5, 0.5)
-            nn.init.zeros_(self.feature_bias)
+            nn.init.constant_(self.feature_bias, 0.1)  # keep tiny 6-filter ReLUs alive at init
             nn.init.uniform_(self.readout, -0.5, 0.5)
             nn.init.zeros_(self.spatial_bias)
             nn.init.zeros_(self.output_bias)
