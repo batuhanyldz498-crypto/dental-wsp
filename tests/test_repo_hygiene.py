@@ -41,3 +41,21 @@ def test_all_six_tasks_have_prompts_configs_and_design_locks():
         assert spec.prompt_path(REPO_ROOT).is_file(), f"Missing prompt for {task}"
         assert spec.config_path(REPO_ROOT).is_file(), f"Missing config for {task}"
         assert spec.design_lock_path(REPO_ROOT).is_file(), f"Missing design.lock.json for {task}"
+
+
+def test_all_six_tasks_have_six_unique_valid_locked_replies():
+    from wsp_core.schemas import strict_json_loads, verify_response_lock
+
+    for task, spec in TASKS.items():
+        design_path = spec.design_lock_path(REPO_ROOT)
+        resp_path = design_path.with_name(f"{task}.responses.lock.json")
+        assert resp_path.is_file(), f"Missing responses.lock.json for {task}"
+        design_bytes = design_path.read_bytes()
+        design_obj = strict_json_loads(design_bytes)
+        resp_obj = strict_json_loads(resp_path.read_bytes())
+        valid_models = verify_response_lock(design_obj, design_bytes, resp_obj, spec.architecture)
+        assert len(valid_models) == 6, f"Expected 6 valid locked replies for {task}, got {len(valid_models)}"
+        raw_hashes = [rec["raw_sha256"] for rec in resp_obj["attempts"].values()]
+        param_hashes = [rec["parameters_sha256"] for rec in resp_obj["attempts"].values()]
+        assert len(set(raw_hashes)) == 6, f"Duplicate raw_sha256 detected in {task}.responses.lock.json"
+        assert len(set(param_hashes)) == 6, f"Duplicate parameters_sha256 detected in {task}.responses.lock.json"

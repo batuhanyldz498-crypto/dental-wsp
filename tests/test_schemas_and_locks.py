@@ -109,6 +109,15 @@ def test_manual_reply_ingestion_valid_and_invalid(tmp_path: Path):
             raw_reply_path=valid_raw,
         )
 
+    # Identical paste under a different slot rejected (paste-error guard)
+    with pytest.raises(SchemaError, match="duplicate_raw_reply_sha256"):
+        ingest_manual_reply(
+            design_lock_path=design_path,
+            responses_lock_path=responses_path,
+            slot="claude_2",
+            raw_reply_path=valid_raw,
+        )
+
     # Response lock verifies cleanly and returns only valid slot payloads
     loaded_lock = strict_json_loads(responses_path.read_bytes())
     valid_models = verify_response_lock(lock_obj, design_bytes, loaded_lock, "cbct-wsp82-v1")

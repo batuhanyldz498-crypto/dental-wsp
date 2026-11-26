@@ -112,6 +112,9 @@ def ingest_manual_reply(
 
     raw_bytes = raw_reply_path.read_bytes()
     raw_sha = sha256_bytes(raw_bytes)
+    for prev_slot, prev_rec in lock["attempts"].items():
+        if prev_rec.get("raw_sha256") == raw_sha:
+            raise SchemaError(f"duplicate_raw_reply_sha256:{slot}_matches_{prev_slot}")
     raw_text = raw_bytes.decode("utf-8-sig")
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 

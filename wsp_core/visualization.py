@@ -76,15 +76,17 @@ def _to_2d_view(
     pred: np.ndarray,
     slice_axis: str = "axial",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return 2D (image, truth, pred) arrays; for 3D CBCT extracts center-of-mass tooth slice."""
+    """Return 2D (image, truth, pred) arrays; for RAS+ 3D CBCT (Z/I->S, Y/P->A, X/L->R) displays upright."""
     if sample.image.ndim == 2:
         return sample.image, sample.target > 0, pred > 0
     coords = np.nonzero(sample.target > 0)
     cz = int(np.round(coords[0].mean())) if coords[0].size else sample.image.shape[0] // 2
     cy = int(np.round(coords[1].mean())) if coords[1].size else sample.image.shape[1] // 2
     if slice_axis == "coronal":
-        return sample.image[:, cy, :], sample.target[:, cy, :] > 0, pred[:, cy, :] > 0
-    return sample.image[cz, :, :], sample.target[cz, :, :] > 0, pred[cz, :, :] > 0
+        # Flip Z vertically for display only so superior maxilla sits at top and inferior mandible at bottom
+        return sample.image[::-1, cy, :], sample.target[::-1, cy, :] > 0, pred[::-1, cy, :] > 0
+    # Flip Y vertically for display only so anterior incisors sit at top and posterior spine at bottom
+    return sample.image[cz, ::-1, :], sample.target[cz, ::-1, :] > 0, pred[cz, ::-1, :] > 0
 
 
 def plot_frozen_replies_grid(

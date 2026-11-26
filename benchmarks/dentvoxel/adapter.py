@@ -2,7 +2,8 @@
 
 Supports reading directly from `DentVoxel.zip` or an extracted `DentVoxel_Dataset/` folder.
 Verified DentVoxel v2.0 schema:
-- 100 paired scans: `image/img0001.nii.gz` <-> `label/label0001.nii.gz` ... `0100`
+- 100 paired scans (`img0001..0105` with 5 skipped IDs) canonicalized from NIfTI `sform`/`qform`
+  headers (99 LPS, 1 LIP) to RAS+ and returned as `(Z/I->S, Y/P->A, X/L->R)`
 - Calibrated Hounsfield Units (min=-1000, p99~2100, isotropic 0.3 mm voxels)
 - Labels from `dataset_DentVoxel.json`:
   - `3..34`: 32 FDI permanent teeth (`tooth_11`..`tooth_48`)
@@ -12,9 +13,12 @@ Verified DentVoxel v2.0 schema:
 from __future__ import annotations
 
 import gzip
+import itertools
+import math
 import re
 import struct
 import zipfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -157,8 +161,92 @@ def extract_axial_sinus_slices(
     return samples
 
 
-def read_nii_gz_bytes(raw_gz_bytes: bytes) -> np.ndarray:
-    """Read a NIfTI-1 `.nii.gz` byte payload to `(Z, Y, X)` without requiring `nibabel`."""
+def _nifti_linear_matrix(hdr: bytes, endian: str) -> np.ndarray:
+    """Extract the 3x3 voxel-to-world (RAS+) linear matrix from a 348-byte NIfTI-1 header."""
+    qform_code, sform_code = struct.unpack(endian + "2h", hdr[252:256])
+    if sform_code > 0:
+        srow_x = struct.unpack(endian + "4f", hdr[280:296])
+        srow_y = struct.unpack(endian + "4f", hdr[296:312])
+        srow_z = struct.unpack(endian + "4f", hdr[312:328])
+        mat = np.array([srow_x[:3], srow_y[:3], srow_z[:3]], dtype=np.float64)
+        if np.all(np.isfinite(mat)) and np.linalg.norm(mat) > 1e-8:
+            return mat
+    if qform_code > 0:
+        pixdim = struct.unpack(endian + "8f", hdr[76:108])
+        qfac = -1.0 if pixdim[0] < 0.0 else 1.0
+        b, c, d = struct.unpack(endian + "3f", hdr[256:268])
+        a = math.sqrt(max(0.0, 1.0 - (b * b + c * c + d * d)))
+        rot = np.array(
+            [
+                [a * a + b * b - c * c - d * d, 2.0 * (b * c - a * d), 2.0 * (b * d + a * c)],
+                [2.0 * (b * c + a * d), a * a + c * c - b * b - d * d, 2.0 * (c * d - a * b)],
+                [2.0 * (b * d - a * c), 2.0 * (c * d + a * b), a * a + d * d - b * b - c * c],
+            ],
+            dtype=np.float64,
+        )
+        scales = np.array(
+            [
+                pixdim[1] if pixdim[1] > 0.0 else 1.0,
+                pixdim[2] if pixdim[2] > 0.0 else 1.0,
+                qfac * (pixdim[3] if pixdim[3] > 0.0 else 1.0),
+            ],
+            dtype=np.float64,
+        )
+        return rot * scales[None, :]
+    return np.eye(3, dtype=np.float64)
+
+
+def _ras_orientation_plan(linear_3x3: np.ndarray) -> tuple[tuple[int, int, int], tuple[int, int, int], str]:
+    """Compute exact closest-canonical RAS+ axis permutation, signs, and raw 3-letter axcodes."""
+    norms = np.linalg.norm(linear_3x3, axis=0, keepdims=True)
+    col_unit = linear_3x3 / np.maximum(norms, 1e-12)
+    u_mat, _, vt_mat = np.linalg.svd(col_unit)
+    orth = u_mat @ vt_mat
+
+    best_perm = (0, 1, 2)
+    best_score = -1.0
+    for perm in itertools.permutations((0, 1, 2)):
+        score = abs(orth[0, perm[0]]) + abs(orth[1, perm[1]]) + abs(orth[2, perm[2]])
+        if score > best_score:
+            best_score = score
+            best_perm = perm
+
+    signs = tuple(1 if orth[w, best_perm[w]] >= 0.0 else -1 for w in range(3))
+    labels = (("L", "R"), ("P", "A"), ("I", "S"))
+    raw_chars = [""] * 3
+    for world_ax, in_ax in enumerate(best_perm):
+        raw_chars[in_ax] = labels[world_ax][1 if signs[world_ax] > 0 else 0]
+    return best_perm, signs, "".join(raw_chars)
+
+
+def _header_axcodes_from_bytes(hdr: bytes) -> str:
+    endian = "<" if struct.unpack("<i", hdr[:4])[0] == 348 else ">"
+    _, _, axcodes = _ras_orientation_plan(_nifti_linear_matrix(hdr, endian))
+    return axcodes
+
+
+def _audit_header_orientations(
+    mode: str,
+    source_path: Path,
+    pairs: list[tuple[str, str, str]],
+) -> dict[str, int]:
+    """Read only the 348-byte NIfTI-1 header across all pairs (single ZIP open for Drive speed)."""
+    counts: Counter[str] = Counter()
+    if mode == "zip":
+        with zipfile.ZipFile(source_path, "r") as zf:
+            for _, img_ref, _ in pairs:
+                with zf.open(img_ref, "r") as raw_f:
+                    with gzip.GzipFile(fileobj=raw_f, mode="rb") as gz:
+                        counts[_header_axcodes_from_bytes(gz.read(348))] += 1
+    else:
+        for _, img_ref, _ in pairs:
+            with gzip.open(img_ref, "rb") as gz:
+                counts[_header_axcodes_from_bytes(gz.read(348))] += 1
+    return dict(sorted(counts.items()))
+
+
+def read_nii_gz_bytes(raw_gz_bytes: bytes, *, canonical_ras: bool = True) -> np.ndarray:
+    """Read a NIfTI-1 `.nii.gz` byte payload to canonical RAS+ `(Z/I->S, Y/P->A, X/L->R)`."""
     buf = gzip.decompress(raw_gz_bytes)
     endian = "<" if struct.unpack("<i", buf[:4])[0] == 348 else ">"
     dims = struct.unpack(endian + "8h", buf[40:56])
@@ -176,7 +264,13 @@ def read_nii_gz_bytes(raw_gz_bytes: bytes) -> np.ndarray:
     ).reshape(shape, order="F")
     if scl_slope not in (0.0, 1.0) or scl_inter != 0.0:
         arr = arr.astype(np.float32) * (scl_slope if scl_slope != 0.0 else 1.0) + scl_inter
-    return np.transpose(arr, (2, 1, 0))
+    if canonical_ras and arr.ndim == 3:
+        perm, signs, _ = _ras_orientation_plan(_nifti_linear_matrix(buf[:348], endian))
+        arr = np.transpose(arr, perm)
+        for axis, sign in enumerate(signs):
+            if sign < 0:
+                arr = np.flip(arr, axis=axis)
+    return np.ascontiguousarray(np.transpose(arr, (2, 1, 0)))
 
 
 def _scan_key(filename: str) -> str:
@@ -251,6 +345,12 @@ def load_dentvoxel_seg(
         img_c, msk_c, val_c = prepare_cbct_3d_canvas(vol, tooth_mask, canvas=canvas, norm_mode=norm_mode)
         samples.append(SegmentationSample(sample_id=scan_id, group_id=scan_id, image=img_c, target=msk_c, valid=val_c))
     require(len(samples) > 0, f"No DentVoxel 3D segmentation scans loaded for split '{split}'.")
+    loaded_ids = {s.group_id for s in samples}
+    missing = sorted(allowed_scans - loaded_ids)
+    require(
+        not missing,
+        f"DentVoxel split '{split}' is missing {len(missing)} scan(s) from source archive/folder: {missing[:5]}",
+    )
     return samples
 
 
@@ -279,19 +379,36 @@ def load_dentvoxel_cls(
         sinus_mask = np.isin(lbl, DENTVOXEL_SINUS_IDS)
         samples.extend(extract_axial_sinus_slices(scan_id, vol, sinus_mask, norm_mode=norm_mode, stride=stride))
     require(len(samples) > 0, f"No DentVoxel axial classification slices loaded for split '{split}'.")
+    loaded_ids = {s.group_id for s in samples}
+    missing = sorted(allowed_scans - loaded_ids)
+    require(
+        not missing,
+        f"DentVoxel split '{split}' is missing {len(missing)} scan(s) from source archive/folder: {missing[:5]}",
+    )
     return samples
 
 
+def get_dentvoxel_scan_ids(source_path: str | Path) -> list[str]:
+    """Return sorted matched scan IDs actually present in `DentVoxel.zip` or folder."""
+    _, pairs = _resolve_dentvoxel_pairs(Path(source_path))
+    return sorted(sid for sid, _, _ in pairs)
+
+
 def verify_dentvoxel_directory(source_path: Path, max_scans: int = 5) -> dict[str, Any]:
-    """Verify DentVoxel ZIP or extracted folder pairs and run HU calibration audit."""
+    """Verify DentVoxel ZIP or extracted folder pairs, header orientations, and HU calibration."""
     mode, pairs = _resolve_dentvoxel_pairs(source_path)
     require(len(pairs) > 0, f"No matching DentVoxel image/label NIfTI pairs found in {source_path}")
+    raw_orientations = _audit_header_orientations(mode, source_path, pairs)
     audited_vols = [_read_pair(mode, source_path, img_ref, lbl_ref)[0] for _, img_ref, lbl_ref in pairs[: max(1, max_scans)]]
     hu_report = audit_intensity_calibration(audited_vols)
+    scan_ids = sorted(sid for sid, _, _ in pairs)
     return {
         "dataset": "dentvoxel",
         "format": mode,
         "matched_nifti_pairs": len(pairs),
+        "scan_id_range": f"{scan_ids[0]}..{scan_ids[-1]}",
+        "raw_nifti_orientations": raw_orientations,
+        "canonicalized_orientation": "RAS+ -> (Z/I->S, Y/P->A, X/L->R)",
         "tooth_label_ids": f"{DENTVOXEL_TOOTH_IDS[0]}..{DENTVOXEL_TOOTH_IDS[-1]}",
         "sinus_label_ids": list(DENTVOXEL_SINUS_IDS),
         "intensity_audit": hu_report,
