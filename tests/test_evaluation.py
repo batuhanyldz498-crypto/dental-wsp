@@ -212,10 +212,10 @@ def test_box_valid_volume_fraction_and_outside_fp_share_over_100():
         img = np.full((32, 64), 0.10, dtype=np.float32)
         target = np.zeros((32, 64), dtype=bool)
         valid = np.ones((32, 64), dtype=bool)
-        # Disconnected tooth pixels inside ref_box [14:18, 24:40] leaving small interior background at 0.35
+        # Disconnected tooth pixels inside ref_box [14:18, 24:40] leaving interior background at 0.45
         target[14:16, 24:28] = True
         target[16:18, 36:40] = True
-        img[14:18, 24:40] = 0.35  # 48 inside-ROI background pixels (below 0 in B, above 0 when grid adds +0.8)
+        img[14:18, 24:40] = 0.45  # in B: 4*0.45 - 1 - 1 = -0.2 < 0; in A: grid middle adds ~+0.5 -> +0.3 > 0
         img[target] = 0.90
         img[1:7, 1:50] = 0.90  # 294 outside-ROI distractor pixels at top (suppressed by grid in A)
         img[0, idx] = 0.20  # make samples distinct for position-invariance check
@@ -223,13 +223,13 @@ def test_box_valid_volume_fraction_and_outside_fp_share_over_100():
 
     p2 = zero_payload("pano-wsp82-v1")
     p2["kernels"][0][1][1] = 4.0
-    p2["feature_bias"][0] = -1.0  # activates above 0.25 -> 0.10 gives 0.0, 0.35 gives 0.4, 0.90 gives 2.6
+    p2["feature_bias"][0] = -1.0  # activates above 0.25 -> 0.10 gives 0.0, 0.45 gives 0.8, 0.90 gives 2.6
     p2["readout"][0] = 1.0
-    p2["output_bias"] = -1.0  # In B: 0.35 -> -0.6 (neg), 0.90 -> +1.6 (pos)
+    p2["output_bias"] = -1.0
     p2["spatial_bias"] = [
-        [-6.0, -6.0, -6.0, -6.0, -6.0],  # suppresses top distractor (fp_saved_out > 0)
-        [+0.8, +0.8, +0.8, +0.8, +0.8],  # pushes interior 0.35 (+0.4+0.8-1=+0.2) > 0 while 0.10 stays -0.2 < 0
-        [-6.0, -6.0, -6.0, -6.0, -6.0],
+        [-4.0, -4.0, -4.0, -4.0, -4.0],  # suppresses top distractor (large fp_saved_out > 0)
+        [+0.8, +0.8, +0.8, +0.8, +0.8],  # pushes interior 0.45 above 0 (fp_saved_in < 0) while 0.10 stays < 0
+        [-4.0, -4.0, -4.0, -4.0, -4.0],
     ]
     over_audit = evaluate_segmentation_paired_audit(p2, over_samples)
     assert over_audit["fp_saved_out"] > 0.0
