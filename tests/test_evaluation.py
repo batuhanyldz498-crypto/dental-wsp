@@ -17,9 +17,13 @@ from wsp_core.evaluation.classification import (
     evaluate_classifier,
 )
 from wsp_core.evaluation.segmentation import (
+    BOX_VALID_FRAC_COLUMN,
+    OUTSIDE_FP_SHARE_COLUMN,
     SegmentationSample,
     evaluate_segmentation_paired_audit,
     evaluate_segmentation_swaps,
+    predict_cohort,
+    score_segmentation_masks,
 )
 from wsp_core.schemas import zero_payload
 
@@ -178,3 +182,64 @@ def test_prepare_panorama_handles_rgba_mask_identically_to_grayscale(tmp_path):
     assert np.array_equal(t1, t2)
     assert np.array_equal(v1, v2)
     assert float(t2.mean()) == pytest.approx(768.0 / 4096.0)
+
+
+def test_box_valid_volume_fraction_and_outside_fp_share_over_100():
+    """Verify box_valid_vol_a_pct / b_pct and that outside_fp_reduction_share_pct can exceed 100%."""
+    samples, payload = _synthetic_2d_cohort()
+    audit = evaluate_segmentation_paired_audit(payload, samples)
+
+    # Intact box tightly matches the 12x12 tooth rectangle inside a 32x64 valid canvas (144 / 2048 = 7.03125%)
+    assert audit["box_valid_vol_a_pct"] == pytest.approx(100.0 * (12 * 12) / (32 * 64), abs=1e-4)
+    # Image-only includes the top-left distractor [1:5, 1:8], so its enclosing box is much larger
+    assert audit["box_valid_vol_b_pct"] > audit["box_valid_vol_a_pct"]
+    assert "Outside-ROI share of grid-removed FPs (A vs B)" in OUTSIDE_FP_SHARE_COLUMN
+    assert "valid fraction" in BOX_VALID_FRAC_COLUMN
+
+    # score_segmentation_masks matches evaluate_segmentation_paired_audit on arm A
+    masks_a = predict_cohort(payload, samples)
+    scored, per_group = score_segmentation_masks(samples, masks_a)
+    assert scored["box_valid_vol_pct"] == pytest.approx(audit["box_valid_vol_a_pct"], abs=1e-6)
+    assert scored["box_iou_pct"] == pytest.approx(audit["box_iou_a_pct"], abs=1e-6)
+    assert scored["excluded_tooth_pct"] == pytest.approx(audit["excluded_tooth_a_pct"], abs=1e-6)
+    assert scored["bf1_pct"] == pytest.approx(audit["bf1_a_pct"], abs=1e-6)
+    assert len(per_group) == 4
+
+    # Construct a case where spatial grid suppresses outside FPs AND increases inside-ROI FPs
+    # -> fp_saved_out > 0, fp_saved_in < 0, total_fp_saved > 0 -> outside_fp_reduction_share_pct > 100%
+    over_samples: list[SegmentationSample] = []
+    for idx in range(2):
+        img = np.full((32, 64), 0.10, dtype=np.float32)
+        target = np.zeros((32, 64), dtype=bool)
+        valid = np.ones((32, 64), dtype=bool)
+        # Disconnected tooth pixels inside ref_box [14:18, 24:40] leaving small interior background at 0.35
+        target[14:16, 24:28] = True
+        target[16:18, 36:40] = True
+        img[14:18, 24:40] = 0.35  # 48 inside-ROI background pixels (below 0 in B, above 0 when grid adds +0.8)
+        img[target] = 0.90
+        img[1:7, 1:50] = 0.90  # 294 outside-ROI distractor pixels at top (suppressed by grid in A)
+        img[0, idx] = 0.20  # make samples distinct for position-invariance check
+        over_samples.append(SegmentationSample(f"ov{idx}", f"og{idx}", img, target, valid))
+
+    p2 = zero_payload("pano-wsp82-v1")
+    p2["kernels"][0][1][1] = 4.0
+    p2["feature_bias"][0] = -1.0  # activates above 0.25 -> 0.10 gives 0.0, 0.35 gives 0.4, 0.90 gives 2.6
+    p2["readout"][0] = 1.0
+    p2["output_bias"] = -1.0  # In B: 0.35 -> -0.6 (neg), 0.90 -> +1.6 (pos)
+    p2["spatial_bias"] = [
+        [-6.0, -6.0, -6.0, -6.0, -6.0],  # suppresses top distractor (fp_saved_out > 0)
+        [+0.8, +0.8, +0.8, +0.8, +0.8],  # pushes interior 0.35 (+0.4+0.8-1=+0.2) > 0 while 0.10 stays -0.2 < 0
+        [-6.0, -6.0, -6.0, -6.0, -6.0],
+    ]
+    over_audit = evaluate_segmentation_paired_audit(p2, over_samples)
+    assert over_audit["fp_saved_out"] > 0.0
+    assert over_audit["fp_saved_in"] < 0.0
+    assert over_audit["outside_fp_reduction_share_pct"] > 100.0
+
+    # All-foreground mask retains 100% of valid canvas and excludes 0% of tooth pixels
+    all_fg = {s.sample_id: s.valid.copy() for s in samples}
+    fg_metrics, _ = score_segmentation_masks(samples, all_fg)
+    assert fg_metrics["box_valid_vol_pct"] == pytest.approx(100.0)
+    assert fg_metrics["excluded_tooth_pct"] == pytest.approx(0.0)
+    assert fg_metrics["bf1_pct"] == pytest.approx(0.0)
+    assert fg_metrics["edge_recall_pct"] == pytest.approx(0.0)
