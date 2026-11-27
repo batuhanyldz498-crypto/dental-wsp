@@ -44,7 +44,7 @@ Foreground prediction uses inclusive **logit ≥ 0** restricted to valid unpadde
 ## 3. Preprocessing, Splitting & Intensity Rules
 
 1. **AKUDENTAL (`akudental_seg`, `akudental_cls`):**
-   - Preserves the exact preprocessing (`0.5th–99.5th` per-film percentile clip → `[0, 1]`, aspect-preserving center resize on `384 × 768`, bilinear image / nearest mask) and locked split digest from Study 1.
+   - Preserves the exact preprocessing (`0.5th–99.5th` per-film percentile clip → `[0, 1]`, aspect-preserving center resize on `384 × 768`, bilinear image / nearest mask) and split convention from the exploratory panoramic pilot.
    - `akudental_seg` target: binary union of FDI permanent tooth classes 1–32.
    - `akudental_cls` target: binary presence of any restorative class (`Implant`, `Crown/Filling`, `Bridge`) resized to `64 × 64`.
    - Provisional groups are preserved and documented transparently as not establishing patient independence.
