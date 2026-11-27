@@ -47,12 +47,6 @@ from wsp_core.evaluation.segmentation import (
 )
 from wsp_core.guards import require
 from wsp_core.schemas import strict_json_loads, validate_parameters, verify_response_lock, zero_payload
-from wsp_core.training.trainer import (
-    TrainingConfig,
-    sample_nested_group_budgets,
-    sample_stratified_cls_budgets,
-    train_segmentation_budget,
-)
 
 DEFAULT_THRESHOLD_GRID = np.round(np.linspace(0.01, 0.99, 99), 4)
 
@@ -332,6 +326,12 @@ def evaluate_segmentation_baselines(
 
     # 4b. Optional human-written 82p warm-start and trained position-only reference under same schedule
     if (run_human_warmstart or run_trained_position_only) and budgets and seeds:
+        from wsp_core.training.trainer import (
+            TrainingConfig,
+            sample_nested_group_budgets,
+            train_segmentation_budget,
+        )
+
         by_group: dict[str, list[SegmentationSample]] = defaultdict(list)
         for s in train_samples:
             by_group[s.group_id].append(s)
@@ -621,6 +621,8 @@ def evaluate_classification_baselines(
         )
 
     # 4. Global intensity logistic regression fit on exact same stratified K-budget subsets
+    from wsp_core.training.trainer import sample_stratified_cls_budgets
+
     by_group: dict[str, list[ClassificationSample]] = defaultdict(list)
     for s in train_samples:
         by_group[s.group_id].append(s)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import numpy as np
@@ -17,7 +18,15 @@ from wsp_core.guards import require
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    """Prespecified optimization hyperparameters shared across Random-Init and WSP Warm-Start."""
+    """Prespecified optimization hyperparameters shared across Random-Init and WSP Warm-Start.
+
+    Optional controls (defaults reproduce v0.1.0 epoch-based training bit-for-bit on CPU):
+    - `max_steps`: if set, runs exactly `max_steps` optimizer steps independent of `K` with cosine LR
+      decay stepped once per optimizer step (`T_max = max_steps`).
+    - `init_output_bias`: `"zero"` (default) or `"prior"` (`log(p / (1 - p))`, where `p` is the mean
+      foreground fraction over valid voxels/pixels of the `K` training samples; only valid when
+      `init_payload is None`).
+    """
 
     epochs: int = 200
     lr: float = 1e-2
@@ -26,6 +35,22 @@ class TrainingConfig:
     device: str = "cpu"
     batch_size: int = 16
     cosine_lr: bool = True
+    max_steps: int | None = None
+    init_output_bias: str = "zero"
+
+
+def compute_prior_output_bias(train_samples: list[SegmentationSample]) -> float:
+    """Compute log-odds prior bias `log(p / (1 - p))` from mean valid-region foreground fraction `p`."""
+    require(len(train_samples) > 0, "Prior output bias requires at least one training sample.")
+    fracs: list[float] = []
+    for s in train_samples:
+        valid = s.valid > 0
+        n_valid = int(np.count_nonzero(valid))
+        require(n_valid > 0, f"Sample {s.sample_id} has an empty valid mask.")
+        n_fg = int(np.count_nonzero((s.target > 0) & valid))
+        fracs.append(n_fg / n_valid)
+    p = float(np.clip(np.mean(fracs), 1e-6, 1.0 - 1e-6))
+    return float(math.log(p / (1.0 - p)))
 
 
 def sample_nested_group_budgets(
@@ -102,6 +127,13 @@ def train_segmentation_budget(
     import torch.nn.functional as F
 
     require(len(train_samples) > 0, "Training requires at least one segmentation sample.")
+    if config.init_output_bias not in ("zero", "prior"):
+        raise ValueError(f"Unsupported init_output_bias: {config.init_output_bias!r}. Expected 'zero' or 'prior'.")
+    if config.max_steps is not None:
+        require(config.max_steps >= 1, f"max_steps must be >= 1, got {config.max_steps}.")
+    if init_payload is not None and config.init_output_bias != "zero":
+        raise ValueError("init_output_bias='prior' cannot be combined with an explicit init_payload.")
+
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
@@ -114,14 +146,19 @@ def train_segmentation_budget(
 
     if init_payload is not None:
         model.load_from_wsp_dict(init_payload)
+    elif config.init_output_bias == "prior":
+        prior_bias = compute_prior_output_bias(train_samples)
+        with torch.no_grad():
+            model.output_bias.fill_(prior_bias)
 
     device = torch.device(config.device)
     model = model.to(device)
     trainable = [p for p in model.parameters() if p.requires_grad]
     require(len(trainable) > 0, "No trainable parameters found.")
     optimizer = torch.optim.Adam(trainable, lr=config.lr, weight_decay=config.weight_decay)
+    t_max = max(1, config.max_steps) if config.max_steps is not None else max(1, config.epochs)
     scheduler = (
-        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, config.epochs), eta_min=config.lr * 0.05)
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max, eta_min=config.lr * 0.05)
         if config.cosine_lr
         else None
     )
@@ -143,29 +180,54 @@ def train_segmentation_budget(
 
     losses: list[float] = []
     model.train()
-    for _ in range(config.epochs):
-        perm = torch.randperm(n_samples, generator=gen) if n_samples > bs else torch.arange(n_samples)
-        epoch_loss = torch.zeros((), device=device)
-        n_steps = 0
-        for start in range(0, n_samples, bs):
-            idx = perm[start : start + bs]
-            if pre_staged:
-                idx_dev = idx.to(device)
-                xb, yb, vb = x_all[idx_dev], y_all[idx_dev], v_all[idx_dev]
-            else:
-                xb, yb, vb = x_all[idx].to(device), y_all[idx].to(device), v_all[idx].to(device)
-            optimizer.zero_grad()
-            logits = model(xb)
-            bce = (F.binary_cross_entropy_with_logits(logits, yb, reduction="none") * vb).sum() / vb.sum().clamp_min(1.0)
-            dice = _soft_dice_loss(logits, yb, vb)
-            loss = 0.5 * bce + 0.5 * dice
-            loss.backward()
-            optimizer.step()
-            epoch_loss = epoch_loss + loss.detach()
-            n_steps += 1
-        if scheduler is not None:
-            scheduler.step()
-        losses.append(float((epoch_loss / max(1, n_steps)).cpu().item()))
+    if config.max_steps is None:
+        for _ in range(config.epochs):
+            perm = torch.randperm(n_samples, generator=gen) if n_samples > bs else torch.arange(n_samples)
+            epoch_loss = torch.zeros((), device=device)
+            n_steps = 0
+            for start in range(0, n_samples, bs):
+                idx = perm[start : start + bs]
+                if pre_staged:
+                    idx_dev = idx.to(device)
+                    xb, yb, vb = x_all[idx_dev], y_all[idx_dev], v_all[idx_dev]
+                else:
+                    xb, yb, vb = x_all[idx].to(device), y_all[idx].to(device), v_all[idx].to(device)
+                optimizer.zero_grad()
+                logits = model(xb)
+                bce = (F.binary_cross_entropy_with_logits(logits, yb, reduction="none") * vb).sum() / vb.sum().clamp_min(1.0)
+                dice = _soft_dice_loss(logits, yb, vb)
+                loss = 0.5 * bce + 0.5 * dice
+                loss.backward()
+                optimizer.step()
+                epoch_loss = epoch_loss + loss.detach()
+                n_steps += 1
+            if scheduler is not None:
+                scheduler.step()
+            losses.append(float((epoch_loss / max(1, n_steps)).cpu().item()))
+    else:
+        steps_done = 0
+        while steps_done < config.max_steps:
+            perm = torch.randperm(n_samples, generator=gen) if n_samples > bs else torch.arange(n_samples)
+            for start in range(0, n_samples, bs):
+                if steps_done >= config.max_steps:
+                    break
+                idx = perm[start : start + bs]
+                if pre_staged:
+                    idx_dev = idx.to(device)
+                    xb, yb, vb = x_all[idx_dev], y_all[idx_dev], v_all[idx_dev]
+                else:
+                    xb, yb, vb = x_all[idx].to(device), y_all[idx].to(device), v_all[idx].to(device)
+                optimizer.zero_grad()
+                logits = model(xb)
+                bce = (F.binary_cross_entropy_with_logits(logits, yb, reduction="none") * vb).sum() / vb.sum().clamp_min(1.0)
+                dice = _soft_dice_loss(logits, yb, vb)
+                loss = 0.5 * bce + 0.5 * dice
+                loss.backward()
+                optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
+                losses.append(float(loss.detach().cpu().item()))
+                steps_done += 1
 
     if pre_staged:
         del x_all, y_all, v_all
@@ -203,7 +265,8 @@ def train_classification_budget(
 
     losses: list[float] = []
     model.train()
-    for _ in range(config.epochs):
+    n_iters = config.max_steps if config.max_steps is not None else config.epochs
+    for _ in range(n_iters):
         optimizer.zero_grad()
         logits = model(x_batch)
         loss = F.binary_cross_entropy_with_logits(logits, y_batch, pos_weight=pos_weight)

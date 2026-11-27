@@ -7,7 +7,11 @@ from pathlib import Path
 
 from wsp_core.registry import REPO_ROOT, TASKS
 
+# Raster images and medical volumes are forbidden to prevent raw patient-data leakage.
+# Aggregate vector figures (`*.svg`, e.g. under `results/validation_controls/` or `results/figures/`)
+# are explicitly permitted because they encode summary curves only, never raw radiographs/scans.
 FORBIDDEN_SUFFIXES = (".nii", ".nii.gz", ".dcm", ".mha", ".nrrd", ".zip", ".png", ".jpg", ".jpeg", ".tif", ".bmp")
+ALLOWED_AGGREGATE_FIGURE_SUFFIXES = (".svg",)
 SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".venv", "venv", "dental_wsp.egg-info", "runs", "inbox"}
 
 
