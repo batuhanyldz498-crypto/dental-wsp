@@ -247,3 +247,51 @@ def test_hanley_mcneil_auc_ci_matches_known_values():
     # Bounds stay clipped inside [0, 1]
     lo_hi, hi_hi, _ = hanley_mcneil_auc_ci(0.995, n_pos=50, n_neg=16)
     assert 0.0 <= lo_hi <= 0.995 <= hi_hi <= 1.0
+
+
+def test_cli_parsers_for_run_baselines_and_factorial_controls():
+    from wsp_core.cli import build_parser
+
+    parser = build_parser()
+    args_base = parser.parse_args(
+        [
+            "run-baselines",
+            "dentvoxel_seg",
+            "--data-dir",
+            "data/DentVoxel.zip",
+            "--split-file",
+            "runs/splits.json",
+            "--out-dir",
+            "results/validation_controls",
+            "--run-human-warmstart",
+            "--budgets",
+            "1,2,4",
+            "--seeds",
+            "0,1",
+        ]
+    )
+    assert args_base.command == "run-baselines"
+    assert args_base.task == "dentvoxel_seg"
+    assert args_base.run_human_warmstart is True
+
+    args_fact = parser.parse_args(
+        [
+            "run-factorial-controls",
+            "dentvoxel_seg",
+            "--data-dir",
+            "data/DentVoxel.zip",
+            "--split-file",
+            "runs/splits.json",
+            "--out-dir",
+            "results/validation_controls",
+            "--budgets",
+            "1,2,4,8",
+            "--seeds",
+            "0,1,2,3,4",
+            "--steps",
+            "480,1800",
+        ]
+    )
+    assert args_fact.command == "run-factorial-controls"
+    assert args_fact.steps == "480,1800"
+    assert args_fact.n_boot == 2000

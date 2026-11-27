@@ -151,6 +151,174 @@ def _cmd_run_cls_budgets(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_seg_train_val(spec, data_dir: Path, split_file: str | None):
+    """Load strictly TRAIN and VAL segmentation splits (never held-out test)."""
+    if spec.dataset == "akudental":
+        from benchmarks.akudental.adapter import load_akudental_seg_public
+
+        return load_akudental_seg_public(data_dir, split="train"), load_akudental_seg_public(data_dir, split="val")
+    if spec.dataset == "denpar":
+        from benchmarks.denpar.adapter import load_denpar_seg
+
+        return load_denpar_seg(data_dir, split="train"), load_denpar_seg(data_dir, split="val")
+    from benchmarks.dentvoxel.adapter import load_dentvoxel_seg
+
+    if not split_file:
+        raise ValueError("--split-file is required for dentvoxel_seg.")
+    return (
+        load_dentvoxel_seg(data_dir, split_file, split="train", norm_mode="hu_window"),
+        load_dentvoxel_seg(data_dir, split_file, split="val", norm_mode="hu_window"),
+    )
+
+
+def _load_cls_train_val(spec, data_dir: Path, split_file: str | None):
+    """Load strictly TRAIN and VAL classification splits (never held-out test)."""
+    if spec.dataset == "akudental":
+        from benchmarks.akudental.adapter import load_akudental_cls_public
+
+        return load_akudental_cls_public(data_dir, split="train"), load_akudental_cls_public(data_dir, split="val")
+    if spec.dataset == "denpar":
+        from benchmarks.denpar.adapter import load_denpar_cls
+
+        return load_denpar_cls(data_dir, split="train"), load_denpar_cls(data_dir, split="val")
+    from benchmarks.dentvoxel.adapter import load_dentvoxel_cls
+
+    if not split_file:
+        raise ValueError("--split-file is required for dentvoxel_cls.")
+    return (
+        load_dentvoxel_cls(data_dir, split_file, split="train", norm_mode="hu_window", stride=4),
+        load_dentvoxel_cls(data_dir, split_file, split="val", norm_mode="hu_window", stride=4),
+    )
+
+
+def _cmd_run_baselines(args: argparse.Namespace) -> int:
+    root = Path(args.repo_root).resolve() if args.repo_root else REPO_ROOT
+    spec = get_task_spec(args.task)
+    cfg = spec.load_config(root)
+    proto = cfg["protocol"]
+    data_dir = Path(args.data_dir)
+    resp_path = (
+        Path(args.responses_lock)
+        if args.responses_lock
+        else spec.design_lock_path(root).with_name(f"{spec.task}.responses.lock.json")
+    )
+
+    if spec.track == "seg":
+        from wsp_core.evaluation.baselines import evaluate_segmentation_baselines
+
+        train_samples, val_samples = _load_seg_train_val(spec, data_dir, args.split_file)
+        default_budgets = [1, 2, 4, 8, 16, 32, 60] if spec.dataset == "dentvoxel" else [1, 2, 4, 8, 16, 32, 64, 200]
+        budgets = [int(x) for x in args.budgets.split(",")] if args.budgets else default_budgets
+        seeds = [int(x) for x in args.seeds.split(",")] if args.seeds else [0, 1, 2]
+        epochs = args.epochs if args.epochs is not None else (120 if spec.dataset == "dentvoxel" else 150)
+        batch_size = args.batch_size if args.batch_size is not None else (4 if spec.dataset == "dentvoxel" else 32)
+        lr = args.lr if args.lr is not None else 0.03
+
+        df, meta = evaluate_segmentation_baselines(
+            task=spec.task,
+            architecture=spec.architecture,
+            train_samples=train_samples,
+            val_samples=val_samples,
+            design_lock_path=spec.design_lock_path(root),
+            responses_lock_path=resp_path,
+            run_human_warmstart=bool(args.run_human_warmstart),
+            run_trained_position_only=bool(args.run_trained_position_only),
+            budgets=budgets,
+            seeds=seeds,
+            epochs=epochs,
+            lr=lr,
+            batch_size=batch_size,
+            device=args.device,
+            out_dir=Path(args.out_dir),
+        )
+        print(
+            f"[{spec.task}] Train-selected global threshold t*={meta['global_threshold_t_star']:.4f} "
+            f"(train Dice={meta['global_threshold_train_dice_pct']:.2f}%)"
+        )
+        print(df.round(4).to_string(index=False))
+        return 0
+
+    from wsp_core.evaluation.baselines import evaluate_classification_baselines
+
+    train_samples, val_samples = _load_cls_train_val(spec, data_dir, args.split_file)
+    default_budgets = list(proto.get("label_budgets_k", proto.get("label_budgets_k_scans")))
+    n_groups = len({s.group_id for s in train_samples})
+    if n_groups not in default_budgets:
+        default_budgets.append(n_groups)
+    budgets = [int(x) for x in args.budgets.split(",")] if args.budgets else default_budgets
+    seeds = [int(x) for x in args.seeds.split(",")] if args.seeds else list(proto["seeds"])
+
+    df = evaluate_classification_baselines(
+        task=spec.task,
+        train_samples=train_samples,
+        val_samples=val_samples,
+        budgets=budgets,
+        seeds=seeds,
+        design_lock_path=spec.design_lock_path(root),
+        responses_lock_path=resp_path,
+        out_dir=Path(args.out_dir),
+    )
+    print(df.round(4).to_string(index=False))
+    return 0
+
+
+def _cmd_run_factorial_controls(args: argparse.Namespace) -> int:
+    from wsp_core.training.controls import ScheduleSpec, run_segmentation_factorial_controls
+
+    root = Path(args.repo_root).resolve() if args.repo_root else REPO_ROOT
+    spec = get_task_spec(args.task)
+    if spec.track != "seg":
+        print(f"Error: {args.task} is not a segmentation task.", file=sys.stderr)
+        return 1
+
+    train_samples, val_samples = _load_seg_train_val(spec, Path(args.data_dir), args.split_file)
+    default_budgets = [1, 2, 4, 8] if spec.dataset == "dentvoxel" else [1, 4, 16, 32, 64]
+    budgets = [int(x) for x in args.budgets.split(",")] if args.budgets else default_budgets
+    seeds = [int(x) for x in args.seeds.split(",")] if args.seeds else [0, 1, 2, 3, 4]
+    epochs = args.epochs if args.epochs is not None else (120 if spec.dataset == "dentvoxel" else 150)
+    batch_size = args.batch_size if args.batch_size is not None else (4 if spec.dataset == "dentvoxel" else 32)
+    lr = args.lr if args.lr is not None else 0.03
+
+    if args.steps:
+        step_vals = [int(x) for x in args.steps.split(",")]
+    else:
+        step_vals = [480, 1800] if spec.dataset == "dentvoxel" else [1050]
+
+    schedules = [ScheduleSpec(f"original_epochs_{epochs}", epochs=epochs, max_steps=None)]
+    for s in step_vals:
+        schedules.append(ScheduleSpec(f"fixed_steps_{s}", epochs=epochs, max_steps=s))
+
+    resp_path = (
+        Path(args.responses_lock)
+        if args.responses_lock
+        else spec.design_lock_path(root).with_name(f"{spec.task}.responses.lock.json")
+    )
+    out = run_segmentation_factorial_controls(
+        task=spec.task,
+        architecture=spec.architecture,
+        train_samples=train_samples,
+        val_samples=val_samples,
+        design_lock_path=spec.design_lock_path(root),
+        responses_lock_path=resp_path,
+        budgets=budgets,
+        seeds=seeds,
+        schedules=schedules,
+        lr=lr,
+        batch_size=batch_size,
+        device=args.device,
+        out_dir=Path(args.out_dir),
+        resume=not args.no_resume,
+        n_boot=args.n_boot,
+    )
+    print(f"\n=== {spec.task} Factorial Summary (Validation Only) ===")
+    print(out["summary_df"].round(3).to_string(index=False))
+    print(f"\n=== {spec.task} Paired Differences (Warm - Random / Human, pp) ===")
+    print(out["paired_summary_df"].round(3).to_string(index=False))
+    if out["svg_path"] is not None:
+        print(f"Saved SVG figure: {out['svg_path']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dental-wsp", description="Digital dentistry WSP benchmark CLI.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -196,6 +364,55 @@ def build_parser() -> argparse.ArgumentParser:
     p_cls.add_argument("--device", default="cpu")
     p_cls.add_argument("--repo-root", default=None)
     p_cls.set_defaults(func=_cmd_run_cls_budgets)
+
+    p_base = sub.add_parser(
+        "run-baselines",
+        help="Run trivial, non-LLM, and human-written prior baselines on TRAIN/VAL splits only.",
+    )
+    p_base.add_argument("task", choices=sorted(TASKS))
+    p_base.add_argument("--data-dir", required=True)
+    p_base.add_argument("--out-dir", required=True, help="Output directory for aggregate validation baseline CSV.")
+    p_base.add_argument("--split-file", default=None, help="Required for dentvoxel tasks.")
+    p_base.add_argument("--responses-lock", default=None)
+    p_base.add_argument("--budgets", default=None, help="Comma-separated K values.")
+    p_base.add_argument("--seeds", default=None, help="Comma-separated random seeds.")
+    p_base.add_argument(
+        "--run-human-warmstart",
+        action="store_true",
+        help="For segmentation tasks, also fine-tune the human-written 82p prior across budgets/seeds.",
+    )
+    p_base.add_argument(
+        "--run-trained-position-only",
+        action="store_true",
+        help="For segmentation tasks, also run trained position-only across budgets/seeds.",
+    )
+    p_base.add_argument("--epochs", type=int, default=None)
+    p_base.add_argument("--lr", type=float, default=None)
+    p_base.add_argument("--batch-size", type=int, default=None)
+    p_base.add_argument("--device", default="cpu")
+    p_base.add_argument("--repo-root", default=None)
+    p_base.set_defaults(func=_cmd_run_baselines)
+
+    p_fact = sub.add_parser(
+        "run-factorial-controls",
+        help="Run fixed-step and prior-bias segmentation factorial controls on TRAIN/VAL splits only.",
+    )
+    p_fact.add_argument("task", choices=("akudental_seg", "denpar_seg", "dentvoxel_seg"))
+    p_fact.add_argument("--data-dir", required=True)
+    p_fact.add_argument("--out-dir", required=True, help="Output directory for aggregate CSVs and SVG figure.")
+    p_fact.add_argument("--split-file", default=None, help="Required for dentvoxel_seg.")
+    p_fact.add_argument("--responses-lock", default=None)
+    p_fact.add_argument("--budgets", default=None, help="Comma-separated K values (default: 1,2,4,8 for dentvoxel_seg).")
+    p_fact.add_argument("--seeds", default=None, help="Comma-separated seeds (default: 0,1,2,3,4).")
+    p_fact.add_argument("--steps", default=None, help="Comma-separated fixed step budgets (default: 480,1800 in 3D; 1050 in 2D).")
+    p_fact.add_argument("--epochs", type=int, default=None)
+    p_fact.add_argument("--lr", type=float, default=None)
+    p_fact.add_argument("--batch-size", type=int, default=None)
+    p_fact.add_argument("--device", default="cpu")
+    p_fact.add_argument("--n-boot", type=int, default=2000)
+    p_fact.add_argument("--no-resume", action="store_true")
+    p_fact.add_argument("--repo-root", default=None)
+    p_fact.set_defaults(func=_cmd_run_factorial_controls)
 
     return parser
 
