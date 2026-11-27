@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import numpy as np
@@ -44,6 +45,28 @@ def compute_roc_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
 
     pos_rank_sum = float(np.sum(ranks[y == 1]))
     return (pos_rank_sum - 0.5 * n_pos * (n_pos + 1)) / (n_pos * n_neg)
+
+
+def hanley_mcneil_auc_ci(
+    auc: float,
+    n_pos: int,
+    n_neg: int,
+    *,
+    z: float = 1.959963984540054,
+) -> tuple[float, float, float]:
+    """Hanley–McNeil (1982) standard error and clipped confidence interval `(low, high, se)`.
+
+    Assumes independent samples; when samples are clustered (e.g. multiple axial slices per CBCT
+    scan in `dentvoxel_cls`), slice-level CIs understate true scan-level uncertainty.
+    """
+    require(n_pos > 0 and n_neg > 0, "Hanley–McNeil CI requires n_pos > 0 and n_neg > 0.")
+    a = float(np.clip(auc, 0.0, 1.0))
+    q1 = a / (2.0 - a)
+    q2 = (2.0 * a * a) / (1.0 + a)
+    var = (a * (1.0 - a) + (n_pos - 1) * (q1 - a * a) + (n_neg - 1) * (q2 - a * a)) / (n_pos * n_neg)
+    se = math.sqrt(max(var, 0.0))
+    half_width = z * se
+    return max(0.0, a - half_width), min(1.0, a + half_width), se
 
 
 def compute_pr_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
