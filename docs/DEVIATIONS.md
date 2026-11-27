@@ -80,10 +80,9 @@ All timestamps below are converted to UTC from `git log` commit headers and JSON
 3. **Dead-ReLU warm-start failures (`denpar_cls`):**
    In `denpar_cls`, `25 / 240` warm-start runs (concentrated in `opus_2` and `opus_3`) yielded `ROC-AUC = 0.5000` on both validation and held-out test because steeply negative hand-coded `conv1_bias`/`conv2_bias` values caused all ReLU units to output zero across training samples (zero gradient). This is a known, fixable initialization/activation pathology (e.g., LeakyReLU or positive bias shift before fine-tuning), left unfixed during the v0.1.0 evaluation to preserve the locked architecture and protocol.
 4. **LLM family provenance (`astra` / `opus`):**
-   The locked reply files use anonymous family labels (`astra_1..3`, `opus_1..3`) collected via manual web-chat sessions (`model_label = "astra_manual_web_chat"` / `"opus_manual_web_chat"`).
-   - `astra`: `TODO(author): model name/version/date`
-   - `opus`: `TODO(author): model name/version/date`
-   (These placeholders must be filled by the repository author before public presentation so external readers know the exact models and collection versions.)
+   The locked reply files use anonymous family labels (`astra_1..3`, `opus_1..3`) collected via manual web-chat sessions (`model_label = "astra_manual_web_chat"` / `"opus_manual_web_chat"`):
+   - `astra`: **GPT Astra-6.2 Max** (manual web-chat collection reported by author: `2026-11-20`; ingested into repository lock files `2026-11-24`–`2026-11-25`, except `dentvoxel_seg` `astra_3` re-collected `2026-11-26T09:50:30Z`).
+   - `opus`: **Opus 5.5 Max** (manual web-chat collection reported by author: `2026-11-20`; ingested into repository lock files `2026-11-24`–`2026-11-25`).
 
 ---
 

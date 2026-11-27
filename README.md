@@ -6,9 +6,9 @@
 
 > **Governance, Provenance & Deviations:** This repository contains **code, locked architecture/prompt specifications, non-private weight locks, aggregate held-out test CSVs, aggregate validation-control CSVs, and verification tests only**. Raw radiographs, CBCT NIfTI volumes, patient identifiers, private overlays, and credentials are never stored here. Held-out test evaluation was governed by an internal Git-tracked authorization file ([`docs/test_authorization.json`](docs/test_authorization.json) — not an external registry such as OSF), completed and sealed at `2026-11-27T11:06:39Z` after one mid-load RGBA mask crash fix (`commit 34a6b16`), and its 12 aggregate test CSVs under [`results/sealed_test/`](results/sealed_test/) remain immutable (SHA-256 verified by CI). All deviations from [`docs/BENCHMARK_PROTOCOL.md`](docs/BENCHMARK_PROTOCOL.md) and the design locks are disclosed in [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md).
 >
-> **LLM Family Labels (Author Action Required):** Replies are logged in collection order across two LLM families (`astra_1..3`, `opus_1..3`; `n = 3` per family):
-> - `astra`: `TODO(author): model name/version/date`
-> - `opus`: `TODO(author): model name/version/date`
+> **LLM Family Provenance:** Replies are logged in collection order across two LLM families (`astra_1..3`, `opus_1..3`; `n = 3` per family):
+> - `astra`: **GPT Astra-6.2 Max** (manual web-chat replies collected `2026-11-20`; ingested into repo locks `2026-11-24`–`2026-11-25`, with `dentvoxel_seg` `astra_3` re-collected `2026-11-26T09:50:30Z`)
+> - `opus`: **Opus 5.5 Max** (manual web-chat replies collected `2026-11-20`; ingested into repo locks `2026-11-24`–`2026-11-25`)
 
 ---
 

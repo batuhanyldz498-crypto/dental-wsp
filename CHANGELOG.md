@@ -13,7 +13,7 @@ All notable changes to `dental-wsp` are documented here.
   - post-`05ae8d2` code used during the sealed test pass (`33ca670`, `34a6b16`), including the DenPAR RGBA mask crash on `Testing/431.png` fixed before completion (`2026-11-27T11:06:39Z`);
   - clarification that `docs/test_authorization.json` is an internal Git-tracked receipt (first committed `2026-11-27`, `33ca670`), not an external registry such as OSF;
   - provisional AKUDENTAL image-level grouping (no verified patient independence) and dead-ReLU `denpar_cls` warm-start failures (`25/240` runs);
-  - explicit `TODO(author): model name/version/date` placeholders for `astra` and `opus`.
+  - explicit LLM family provenance (`astra` = GPT Astra-6.2 Max, `opus` = Opus 5.5 Max; collected `2026-11-20`, ingested into locks `2026-11-24`–`2026-11-25`, `dentvoxel_seg` `astra_3` re-collected `2026-11-26T09:50:30Z`).
 - Preserved all files under `results/sealed_test/` and `docs/test_authorization.json` unchanged (SHA-256 digests unchanged and verified by `tests/test_repo_hygiene.py`).
 
 ### Metrics & Evaluation
