@@ -41,10 +41,10 @@ def prepare_panorama(
             gray = np.asarray(img.convert("L"), dtype=np.float32)
 
     if isinstance(mask_source, np.ndarray):
-        target = mask_source > 0
+        target = (mask_source[..., :3].max(axis=-1) > 0) if mask_source.ndim == 3 else (mask_source > 0)
     else:
         with Image.open(mask_source) as msk:
-            target = np.asarray(msk, dtype=np.uint8) > 0
+            target = np.asarray(msk.convert("L"), dtype=np.uint8) > 0
 
     if gray.shape != target.shape:
         raise ValueError("Image and mask geometry differ.")

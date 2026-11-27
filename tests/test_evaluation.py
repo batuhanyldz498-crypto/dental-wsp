@@ -151,3 +151,30 @@ def test_classification_metrics_and_sign_flip_detection():
     res_flip = evaluate_classifier(flipped, samples)
     assert res_flip["roc_auc"] == pytest.approx(0.0)
     assert res_flip["sign_flip_flagged"] is True
+
+
+def test_prepare_panorama_handles_rgba_mask_identically_to_grayscale(tmp_path):
+    from PIL import Image
+    from benchmarks.akudental.adapter import prepare_panorama
+
+    img = np.full((64, 64), 40, dtype=np.uint8)
+    img[16:48, 20:44] = 220
+    msk_l = np.zeros((64, 64), dtype=np.uint8)
+    msk_l[16:48, 20:44] = 255
+    msk_rgba = np.zeros((64, 64, 4), dtype=np.uint8)
+    msk_rgba[..., :3] = msk_l[..., None]
+    msk_rgba[..., 3] = 255  # Constant opaque alpha (matches DenPAR Testing/431.png)
+
+    img_p = tmp_path / "img.jpg"
+    msk_l_p = tmp_path / "msk_l.png"
+    msk_rgba_p = tmp_path / "msk_rgba.png"
+    Image.fromarray(img, mode="L").save(img_p)
+    Image.fromarray(msk_l, mode="L").save(msk_l_p)
+    Image.fromarray(msk_rgba, mode="RGBA").save(msk_rgba_p)
+
+    i1, t1, v1 = prepare_panorama(img_p, msk_l_p, canvas=(64, 64))
+    i2, t2, v2 = prepare_panorama(img_p, msk_rgba_p, canvas=(64, 64))
+    assert np.array_equal(i1, i2)
+    assert np.array_equal(t1, t2)
+    assert np.array_equal(v1, v2)
+    assert float(t2.mean()) == pytest.approx(768.0 / 4096.0)

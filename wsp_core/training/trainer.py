@@ -129,6 +129,12 @@ def train_segmentation_budget(
     x_all = torch.stack([torch.from_numpy(s.image.astype(np.float32)).unsqueeze(0) for s in train_samples])
     y_all = torch.stack([torch.from_numpy((s.target > 0).astype(np.float32)).unsqueeze(0) for s in train_samples])
     v_all = torch.stack([torch.from_numpy((s.valid > 0).astype(np.float32)).unsqueeze(0) for s in train_samples])
+    total_bytes = (x_all.numel() + y_all.numel() + v_all.numel()) * 4
+    pre_staged = device.type == "cuda" and total_bytes <= 2 * 1024**3
+    if pre_staged:
+        x_all = x_all.to(device)
+        y_all = y_all.to(device)
+        v_all = v_all.to(device)
 
     n_samples = len(train_samples)
     default_bs = 4 if architecture == "cbct-wsp82-v1" else config.batch_size
@@ -139,13 +145,15 @@ def train_segmentation_budget(
     model.train()
     for _ in range(config.epochs):
         perm = torch.randperm(n_samples, generator=gen) if n_samples > bs else torch.arange(n_samples)
-        epoch_loss = 0.0
+        epoch_loss = torch.zeros((), device=device)
         n_steps = 0
         for start in range(0, n_samples, bs):
             idx = perm[start : start + bs]
-            xb = x_all[idx].to(device)
-            yb = y_all[idx].to(device)
-            vb = v_all[idx].to(device)
+            if pre_staged:
+                idx_dev = idx.to(device)
+                xb, yb, vb = x_all[idx_dev], y_all[idx_dev], v_all[idx_dev]
+            else:
+                xb, yb, vb = x_all[idx].to(device), y_all[idx].to(device), v_all[idx].to(device)
             optimizer.zero_grad()
             logits = model(xb)
             bce = (F.binary_cross_entropy_with_logits(logits, yb, reduction="none") * vb).sum() / vb.sum().clamp_min(1.0)
@@ -153,12 +161,14 @@ def train_segmentation_budget(
             loss = 0.5 * bce + 0.5 * dice
             loss.backward()
             optimizer.step()
-            epoch_loss += float(loss.detach().cpu().item())
+            epoch_loss = epoch_loss + loss.detach()
             n_steps += 1
         if scheduler is not None:
             scheduler.step()
-        losses.append(epoch_loss / max(1, n_steps))
+        losses.append(float((epoch_loss / max(1, n_steps)).cpu().item()))
 
+    if pre_staged:
+        del x_all, y_all, v_all
     return model.export_to_wsp_dict(), losses
 
 
