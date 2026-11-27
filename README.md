@@ -2,7 +2,7 @@
 
 An open-source research benchmark extending **Weight-Space Programming (WSP)** ([Lindholz et al., *Weight-Space Programming for Medical Imaging: Do We Still Need Training Data?*, arXiv:2611.12066](https://arxiv.org/abs/2611.12066)) to **digital dentistry** across three imaging modalities: **2D intra-oral periapical radiographs (DenPAR)**, **2D panoramic radiographs (AKUDENTAL)**, and **3D cone-beam CT volumes (DentVoxel)**.
 
-> **Governance & Data Policy:** This repository contains **code, locked architecture/prompt specifications, verification tests, and non-private weight locks only**. Raw radiographs, CBCT NIfTI volumes, patient identifiers, private overlays, and credentials are never stored here. All held-out test sets remain programmatically sealed until pre-registered validation protocols are finalized and authorized.
+> **Governance & Data Policy:** This repository contains **code, locked architecture/prompt specifications, non-private weight locks, aggregate held-out test CSVs, and verification tests only**. Raw radiographs, CBCT NIfTI volumes, patient identifiers, private overlays, and credentials are never stored here. All held-out test splits are programmatically gated by [docs/test_authorization.json](docs/test_authorization.json) and permanently sealed after their single authorized evaluation (`2026-11-27T11:06:39Z`).
 
 ---
 
@@ -27,18 +27,18 @@ Every task evaluates the **exact same compact architecture** across:
 
 ---
 
-## Validation Results Summary (`36 / 36` Unique Locked Replies · Held-Out Test Authorized)
+## Benchmark Results Summary (`36 / 36` Unique Locked Replies · Validation + Single-Shot Held-Out Test)
 
-Full per-reply tables (all 6 replies reported honestly in collection order `astra_1..3`, `opus_1..3`) and mechanistic discussion are documented in [docs/RESULTS_AND_DISCUSSION.md](docs/RESULTS_AND_DISCUSSION.md). All held-out test splits are pre-registered under [docs/test_authorization.json](docs/test_authorization.json) for a single-shot pass via [notebooks/04_sealed_test_evaluation.ipynb](notebooks/04_sealed_test_evaluation.ipynb). *No clinical claims are made; these 82p/261p models are mechanistic probes and low-label initializers.*
+All **6 / 6 held-out validation suites** and **6 / 6 single-shot held-out test suites** are complete under pre-registered authorization ([docs/test_authorization.json](docs/test_authorization.json), sealed `2026-11-27T11:06:39Z`). Full per-reply tables (all 6 replies reported honestly in collection order `astra_1..3`, `opus_1..3`), validation-vs-test drift analysis, and SHA-256 verification checksums are in [docs/RESULTS_AND_DISCUSSION.md](docs/RESULTS_AND_DISCUSSION.md), with non-private aggregate test CSVs committed under [results/sealed_test/](results/sealed_test/). *No clinical claims are made; these 82p/261p models are mechanistic research probes and low-label initializers.*
 
-| Task (`val` cohort) | Arch (Params) | Frozen WSP `K=0` (Mean, 6/6) | Trained Pos-Only (`K_max`) | Low-`K` Warm-Start vs. Random-Init | Full-`K` Warm-Start vs. Random-Init |
+| Task (`val` / `test` cohort) | Arch (Params) | Frozen WSP `K=0` *(Val → **Test**)* | Trained Pos-Only `K_max` *(**Test**)* | Low-`K` Warm-Start vs. Random-Init *(**Test**)* | Full-`K` Warm-Start vs. Random-Init *(**Test**)* |
 |---|---:|---|---|---|---|
-| `akudental_seg` (`67` panoramics) | `pano-wsp82-v1` (82) | **46.98%** Dice (`+25.9 pp` grid gain, 90.1% out-FP) | 59.56% Dice / 5.4% Rec | `K=4..32`: **+12–15 pp** Dice over Random | 68.19% vs. 68.60% |
-| `denpar_seg` (`150` periapicals) | `periapical-wsp82-v1` (82) | **43.35%** Dice (`+0.8 pp` grid — filter-driven) | 65.37% Dice / 4.7% Rec | `K=1..64`: `opus` **+5.5–7.6 pp** Edge Rec | 71.97% (`opus` 73.3%) vs. 73.65% |
-| `dentvoxel_seg` (`20` CBCT, RAS+) | `cbct-wsp82-v1` (82) | **47.42%** Dice (`opus_3` **53.4%**, **0.00%** excl. voxels, 87.1% out-FP) | **7.32%** Dice *(fails in 3D)* | `K=1..4`: **59.7–60.4%** vs. **0.00%** Random collapse | **79.21%** (`opus` **83.0%**) vs. 76.21% |
-| `akudental_cls` (`67` panoramics) | `cls-lenet2d-v1` (261) | 0.511 Full / **0.593** Margin (`opus_3` **0.877**) | — | Warm beats Random on Margin **7/7** budgets | 0.534 / 0.557 vs. 0.550 / 0.536 |
-| `denpar_cls` (`150` periapicals) | `cls-lenet2d-v1` (261) | 0.428 Full (`astra_1` 0.698→**0.825**; `opus` 3/3 flip) | — | `astra` warm: **0.930** Margin vs. Random 0.796 | `astra` **0.923 / 0.930** vs. Random 0.921 / 0.796 *(25/240 `opus` dead-ReLU)* |
-| `dentvoxel_cls` (`20` CBCT, 1720 slices) | `cls-lenet2d-v1` (261) | **0.870** Full / **0.854** Margin (`astra_2` **0.967**, 0 flips) | — | `K=2`: **0.981 / 0.971** vs. Random 0.873 / 0.823 | **0.992 / 0.983** vs. Random 0.967 / 0.906 |
+| `akudental_seg` (`67` / `66` panoramics) | `pano-wsp82-v1` (82) | 46.98% → **46.58%** (`+26.6 pp` grid, 90.3% out-FP) | **56.64%** (Edge Rec 5.1%) | `K=4..32`: **+11–16 pp** Dice over Random | **66.27%** (`opus` 67.7%) vs. **66.69%** |
+| `denpar_seg` (`150` / `200` periapicals) | `periapical-wsp82-v1` (82) | 43.35% → **42.35%** (`+0.9 pp` grid — filter-driven) | **66.76%** (Edge Rec 4.7%) | `K=1..64`: `opus` **+5–7 pp** Edge Rec | **73.54%** (`opus` 75.0%) vs. **75.14%** |
+| `dentvoxel_seg` (`20` / `20` CBCT, RAS+) | `cbct-wsp82-v1` (82) | 47.42% → **45.54%** (`opus_3` **51.3%**, **0.00%** excl., 90.2% out-FP) | **7.12%** *(fails in 3D)* | `K=1..4`: **56.9–57.5%** (`opus` **61.9%**) vs. **0.00%** Random collapse | **78.87%** (`opus` **82.96 ± 0.53%**) vs. **75.83 ± 12.79%** |
+| `akudental_cls` (`67` / `66` panoramics) | `cls-lenet2d-v1` (261) | Full 0.511→**0.543**; Margin 0.593→**0.544** (`opus_3` **0.794**) | — | Margin-Crop: Warm beats Random **7/7** budgets | **0.507 / 0.531** vs. **0.470 / 0.419** |
+| `denpar_cls` (`150` / `200` periapicals) | `cls-lenet2d-v1` (261) | 0.428→**0.467** (`astra_1` **0.777→0.798**; `opus` 3/3 flip) | — | `K=64..128` Margin: `astra` **0.896–0.959** vs. Random 0.643–0.719 | `astra` **0.974 / 0.966** vs. Random **0.977 / 0.812** *(25/240 `opus` dead-ReLU)* |
+| `dentvoxel_cls` (`20` / `20` CBCT, 1,720 sl.) | `cls-lenet2d-v1` (261) | 0.870→**0.868** / Margin **0.864** (`astra_2` **0.966**, 0 flips) | — | `K=2`: **0.982 / 0.971** (`astra` **0.987 / 0.984**) vs. Random 0.900 / 0.857 | **0.991 / 0.981** (`astra` **0.992 / 0.991**) vs. **0.965 / 0.917** |
 
 ---
 
@@ -95,12 +95,15 @@ dental-wsp/
 │   ├── akudental/                # Adapter, DATASET.md, locked prompts, task configs
 │   ├── denpar/                   # Adapter, DATASET.md, locked prompts, task configs
 │   └── dentvoxel/                # NIfTI adapter + HU audit, DATASET.md, locked prompts, task configs
-├── notebooks/                    # Thin output-cleared Colab/Jupyter reproduction notebooks
+├── notebooks/                    # Output-cleared Colab/Jupyter validation & sealed-test notebooks
+├── results/
+│   └── sealed_test/              # 12 non-private aggregate held-out test CSVs (SHA-256 verified)
 ├── docs/
 │   ├── BENCHMARK_PROTOCOL.md     # Pre-registered protocol & sealed-test authorization gate
 │   ├── RESULTS_AND_DISCUSSION.md # Unified 3-modality validation/test tables & mechanistic analysis
 │   ├── test_authorization.json   # Single-pass pre-registered held-out test authorization receipt
 │   └── GITHUB_WORKFLOW.md        # Private-to-public GitHub publishing & CI guide
+├── CITATION.cff                  # Citation metadata for GitHub & Zenodo
 └── tests/                        # Unit, numerical-parity, synthetic end-to-end & hygiene tests
 ```
 

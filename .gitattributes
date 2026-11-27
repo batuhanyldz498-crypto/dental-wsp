@@ -1,0 +1,4 @@
+# Preserve exact LF bytes for cryptographically hashed lock files, authorization, and sealed test CSVs across OSes
+*.design.lock.json text eol=lf
+docs/test_authorization.json text eol=lf
+results/sealed_test/*.csv text eol=lf

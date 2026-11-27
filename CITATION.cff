@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "dental-wsp: Weight-Space Programming Benchmark for Digital Dentistry"
+message: "If you use this benchmark, locked prompts, or weight locks in your research, please cite it as below."
+type: software
+authors:
+  - alias: "batuhanyldz498-crypto"
+repository-code: "https://github.com/batuhanyldz498-crypto/dental-wsp"
+license: MIT
+version: "0.1.0"
+date-released: "2026-11-27"
+keywords:
+  - weight-space-programming
+  - medical-imaging
+  - digital-dentistry
+  - dental-radiography
+  - panoramic-xray
+  - periapical-xray
+  - cbct
+  - 3d-segmentation
+references:
+  - type: article
+    title: "Weight-Space Programming for Medical Imaging: Do We Still Need Training Data?"
+    authors:
+      - family-names: Lindholz
+        given-names: M.
+      - family-names: Ruppel
+        given-names: R.
+      - family-names: Milnik
+        given-names: A.
+    year: 2026
+    url: "https://arxiv.org/abs/2611.12066"

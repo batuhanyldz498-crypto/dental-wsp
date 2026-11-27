@@ -68,3 +68,58 @@ def test_all_six_tasks_have_six_unique_valid_locked_replies():
         param_hashes = [rec["parameters_sha256"] for rec in resp_obj["attempts"].values()]
         assert len(set(raw_hashes)) == 6, f"Duplicate raw_sha256 detected in {task}.responses.lock.json"
         assert len(set(param_hashes)) == 6, f"Duplicate parameters_sha256 detected in {task}.responses.lock.json"
+
+
+def test_no_personal_paths_or_internal_handoff_artifacts():
+    forbidden_tokens = (
+        "C:\\" + "Users\\",
+        "C:/" + "Users/",
+        "CONTINUATION_" + "HANDOFF",
+        "AKUDENTAL_WSP_Spatial_" + "Ablation",
+        "WSP_" + "Work",
+    )
+    violations: list[str] = []
+    for path in REPO_ROOT.rglob("*"):
+        if any(part in SKIP_DIRS for part in path.parts) or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        lower = text.lower()
+        for token in forbidden_tokens:
+            if token.lower() in lower:
+                violations.append(f"{path.relative_to(REPO_ROOT)}:{token}")
+    assert not violations, f"Personal paths or internal workspace tokens found: {violations}"
+
+
+def test_sealed_test_aggregate_csvs_match_recorded_sha256_receipts():
+    from wsp_core.schemas import sha256_file
+
+    auth_path = REPO_ROOT / "docs/test_authorization.json"
+    assert (
+        sha256_file(auth_path)
+        == "6413f557db216921564664bb5fd5873a051fd30e345a5b4c0a99b8ab246d745c"
+    ), "docs/test_authorization.json digest changed after sealed test execution"
+
+    expected_csv_digests = {
+        "akudental_cls_test_stage1_frozen.csv": "35e74c338147fab3380d4dbb3c3288815881ab8fe527b850e60890d8a5e8a68a",
+        "akudental_cls_test_summary.csv": "442769f9333c0f446b0e321d2e582f391d7bff8d220c2b46daa73ac19ea95216",
+        "akudental_seg_test_stage1_frozen.csv": "2b54726862804827ad6cae0849be4d7eb8ef8ed61f0d0ed6ae3b254c0888c35b",
+        "akudental_seg_test_summary.csv": "4757b00a2cc5a97cd67378cec09aebba123cb9ca92961e59c09dd7bdcbdb478c",
+        "denpar_cls_test_stage1_frozen.csv": "ab8b6135eeeb9e1baee2c41b71b9004f20b4000f877de90fe36563652afbb477",
+        "denpar_cls_test_summary.csv": "bdfe4345610406549c9356d4dc0e37e4b0037e3a635e93c2ef6d10c06a9953b3",
+        "denpar_seg_test_stage1_frozen.csv": "81d01ea55b952e61f56018cd4819c3a16662c98e262f6ef63825486e8cfc918b",
+        "denpar_seg_test_summary.csv": "4f30835bdb02ad66be533e1b9ac876d2a6d5e8d9faee6c3024d4e7fdddf6722a",
+        "dentvoxel_cls_test_stage1_frozen.csv": "a3b1dae18dffd51901073ca635e1dc434d3e3c019a12a42b3322b6a060dd1f9c",
+        "dentvoxel_cls_test_summary.csv": "170a4c9532f591c11cbd970701545fb646518c4a6004bd347c56a6757b69c676",
+        "dentvoxel_seg_test_stage1_frozen.csv": "4d3eeccd24fa1e92eb40b4f21e9e944ef3d9a9ad59950262bc60ad108bf12d80",
+        "dentvoxel_seg_test_summary.csv": "a1eb20cd90c9afca118e0b37ce7f09e5a7916bfecdda6325fbd4a64c44bf6895",
+    }
+    sealed_dir = REPO_ROOT / "results/sealed_test"
+    assert sealed_dir.is_dir(), "Missing results/sealed_test directory"
+    actual_files = sorted(p.name for p in sealed_dir.iterdir() if p.is_file())
+    assert actual_files == sorted(expected_csv_digests), f"Unexpected files in results/sealed_test: {actual_files}"
+    for name, expected_sha in expected_csv_digests.items():
+        actual_sha = sha256_file(sealed_dir / name)
+        assert actual_sha == expected_sha, f"SHA-256 mismatch for results/sealed_test/{name}"

@@ -1,6 +1,6 @@
 """82-parameter 2D multiscale WSP segmenter (`pano-wsp82-v1` and `periapical-wsp82-v1`).
 
-Matches the exact forward oracle of AKUDENTAL Study 1 (`AKUDENTAL_WSP_Spatial_Ablation_Colab.ipynb`)
+Matches the exact forward oracle of the Study 1 panoramic baseline
 and exposes an equivalent differentiable PyTorch module when `torch` is installed.
 """
 

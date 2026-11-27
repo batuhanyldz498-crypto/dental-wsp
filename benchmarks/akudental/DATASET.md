@@ -11,11 +11,11 @@
 - **`akudental_cls` (`cls-lenet2d-v1`):** Binary presence of any radiopaque restorative class (`Implant`, `Crown/Filling`, `Bridge`) on a `64 × 64` grayscale canvas.
 
 ## Bring-Your-Own-Data (BYOD) Placement
-Place the dataset outside Git (for example under `data/akudental/` or Google Drive `WSP_Work/`):
-- **Study 1 archive format:** `AKUDENTAL_PANORAMIC_INIT_V1.zip` + `split_plan.private.json`
-- **Or raw Labelme/COCO export:** `images/` + annotation JSONs (see `benchmarks/akudental/adapter.py`)
+Place the dataset outside Git (for example under `data/akudental/` or Google Drive `WSP_Dental_Data/AKUDENTAL/`):
+- **Official public COCO folder:** `akudental_instances.json` + `images/`
+- **Legacy archive format:** `AKUDENTAL_PANORAMIC_INIT_V1.zip` + `split_plan.private.json`
 
 Verify locally without modifying source files:
 ```bash
-dental-wsp verify-dataset akudental --data-dir data/akudental/AKUDENTAL_PANORAMIC_INIT_V1.zip
+dental-wsp verify-dataset akudental --data-dir data/akudental
 ```

@@ -6,7 +6,7 @@ This guide walks through publishing `dental-wsp` cleanly from local setup to a *
 
 ## 1. Local Verification Before Pushing
 
-From `C:\Users\Lenovo\Desktop\dental-wsp`:
+From your local `dental-wsp` repository root:
 
 ```powershell
 python -m pip install -e ".[dev]"
@@ -22,9 +22,9 @@ git status
 
 ---
 
-## 2. Re-Authenticate GitHub CLI & Create Private Repo
+## 2. Authenticate GitHub CLI & Create Repository
 
-Because local `gh` authentication for `batuhanyldz498-crypto` needs a fresh login:
+If `gh` is not yet authenticated, sign in first:
 
 ```powershell
 gh auth login -h github.com
@@ -33,7 +33,7 @@ gh auth login -h github.com
 Follow the interactive browser prompt, then create the **private** repository and push `main`:
 
 ```powershell
-cd C:\Users\Lenovo\Desktop\dental-wsp
+cd path\to\dental-wsp
 gh repo create batuhanyldz498-crypto/dental-wsp --private --source=. --remote=origin --push
 ```
 
@@ -43,7 +43,7 @@ Confirm GitHub Actions CI (`.github/workflows/ci.yml`) turns green under the **A
 
 ## 3. Running Validation & Collecting Manual WSP Replies
 
-1. Keep raw datasets strictly outside Git (e.g., Google Drive `WSP_Work/` or local `data/`, which is git-ignored).
+1. Keep raw datasets strictly outside Git (e.g., Google Drive `WSP_Dental_Data/` or local `data/`, which is git-ignored).
 2. For each new task (`akudental_cls`, `denpar_seg`, `denpar_cls`, `dentvoxel_seg`, `dentvoxel_cls`):
    - Paste `benchmarks/<dataset>/<seg|cls>_prompt.md` into a fresh GPT / Claude chat (no web search, no tools, no image uploads).
    - Save each raw reply text into `inbox/<task>/<family>_<rep>.txt` (git-ignored).
