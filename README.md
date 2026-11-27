@@ -27,6 +27,21 @@ Every task evaluates the **exact same compact architecture** across:
 
 ---
 
+## Validation Results Summary (`36 / 36` Unique Locked Replies · Held-Out Test Authorized)
+
+Full per-reply tables (all 6 replies reported honestly in collection order `astra_1..3`, `opus_1..3`) and mechanistic discussion are documented in [docs/RESULTS_AND_DISCUSSION.md](docs/RESULTS_AND_DISCUSSION.md). All held-out test splits are pre-registered under [docs/test_authorization.json](docs/test_authorization.json) for a single-shot pass via [notebooks/04_sealed_test_evaluation.ipynb](notebooks/04_sealed_test_evaluation.ipynb). *No clinical claims are made; these 82p/261p models are mechanistic probes and low-label initializers.*
+
+| Task (`val` cohort) | Arch (Params) | Frozen WSP `K=0` (Mean, 6/6) | Trained Pos-Only (`K_max`) | Low-`K` Warm-Start vs. Random-Init | Full-`K` Warm-Start vs. Random-Init |
+|---|---:|---|---|---|---|
+| `akudental_seg` (`67` panoramics) | `pano-wsp82-v1` (82) | **46.98%** Dice (`+25.9 pp` grid gain, 90.1% out-FP) | 59.56% Dice / 5.4% Rec | `K=4..32`: **+12–15 pp** Dice over Random | 68.19% vs. 68.60% |
+| `denpar_seg` (`150` periapicals) | `periapical-wsp82-v1` (82) | **43.35%** Dice (`+0.8 pp` grid — filter-driven) | 65.37% Dice / 4.7% Rec | `K=1..64`: `opus` **+5.5–7.6 pp** Edge Rec | 71.97% (`opus` 73.3%) vs. 73.65% |
+| `dentvoxel_seg` (`20` CBCT, RAS+) | `cbct-wsp82-v1` (82) | **47.42%** Dice (`opus_3` **53.4%**, **0.00%** excl. voxels, 87.1% out-FP) | **7.32%** Dice *(fails in 3D)* | `K=1..4`: **59.7–60.4%** vs. **0.00%** Random collapse | **79.21%** (`opus` **83.0%**) vs. 76.21% |
+| `akudental_cls` (`67` panoramics) | `cls-lenet2d-v1` (261) | 0.511 Full / **0.593** Margin (`opus_3` **0.877**) | — | Warm beats Random on Margin **7/7** budgets | 0.534 / 0.557 vs. 0.550 / 0.536 |
+| `denpar_cls` (`150` periapicals) | `cls-lenet2d-v1` (261) | 0.428 Full (`astra_1` 0.698→**0.825**; `opus` 3/3 flip) | — | `astra` warm: **0.930** Margin vs. Random 0.796 | `astra` **0.923 / 0.930** vs. Random 0.921 / 0.796 *(25/240 `opus` dead-ReLU)* |
+| `dentvoxel_cls` (`20` CBCT, 1720 slices) | `cls-lenet2d-v1` (261) | **0.870** Full / **0.854** Margin (`astra_2` **0.967**, 0 flips) | — | `K=2`: **0.981 / 0.971** vs. Random 0.873 / 0.823 | **0.992 / 0.983** vs. Random 0.967 / 0.906 |
+
+---
+
 ## Quickstart
 
 ```bash
@@ -83,6 +98,8 @@ dental-wsp/
 ├── notebooks/                    # Thin output-cleared Colab/Jupyter reproduction notebooks
 ├── docs/
 │   ├── BENCHMARK_PROTOCOL.md     # Pre-registered protocol & sealed-test authorization gate
+│   ├── RESULTS_AND_DISCUSSION.md # Unified 3-modality validation/test tables & mechanistic analysis
+│   ├── test_authorization.json   # Single-pass pre-registered held-out test authorization receipt
 │   └── GITHUB_WORKFLOW.md        # Private-to-public GitHub publishing & CI guide
 └── tests/                        # Unit, numerical-parity, synthetic end-to-end & hygiene tests
 ```

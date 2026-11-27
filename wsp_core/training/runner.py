@@ -62,15 +62,16 @@ def run_classification_three_arm_validation(
     device: str = "cpu",
     out_dir: Path | None = None,
     resume: bool = True,
+    split_label: str = "val",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run Arm 1 (Frozen WSP), Arm 2 (Random-Init Adam), and Arm 3 (WSP Warm-Start Adam) on validation."""
+    """Run Arm 1 (Frozen WSP), Arm 2 (Random-Init Adam), and Arm 3 (WSP Warm-Start Adam)."""
     design_bytes = design_lock_path.read_bytes()
     design = strict_json_loads(design_bytes)
     resp = strict_json_loads(responses_lock_path.read_bytes())
     frozen_models = verify_response_lock(design, design_bytes, resp, expected_architecture="cls-lenet2d-v1")
     require(len(frozen_models) > 0, f"No valid frozen replies found in {responses_lock_path}")
 
-    runs_csv = (out_dir / f"{task}_val_runs.csv") if out_dir is not None else None
+    runs_csv = (out_dir / f"{task}_{split_label}_runs.csv") if out_dir is not None else None
     rows, done = _load_existing_runs(runs_csv) if resume else ([], set())
     if done:
         print(f"[{task}] Resuming from {runs_csv} ({len(done)} completed runs skipped)")
@@ -159,12 +160,14 @@ def run_classification_three_arm_validation(
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
-        runs_df.to_csv(out_dir / f"{task}_val_runs.csv", index=False)
-        summary_df.to_csv(out_dir / f"{task}_val_summary.csv", index=False)
+        runs_df.to_csv(out_dir / f"{task}_{split_label}_runs.csv", index=False)
+        summary_df.to_csv(out_dir / f"{task}_{split_label}_summary.csv", index=False)
+        curve_name = f"{task}_learning_curve.png" if split_label == "val" else f"{task}_{split_label}_learning_curve.png"
         plot_classification_learning_curve(
             summary_df,
             task=task,
-            out_path=out_dir / f"{task}_learning_curve.png",
+            out_path=out_dir / curve_name,
+            split_label=split_label,
         )
 
     return runs_df, summary_df
@@ -175,11 +178,14 @@ def plot_classification_learning_curve(
     *,
     task: str,
     out_path: Path | None = None,
+    split_label: str = "val",
 ) -> Any:
     """Plot 2-panel learning curves: Full-Frame ROC-AUC and Margin-Crop ROC-AUC vs. K."""
+    split_title = "Validation Only" if split_label == "val" else "Held-Out Test"
+    split_prefix = "Validation" if split_label == "val" else "Held-Out Test"
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4), sharey=True, layout="constrained")
     panels = [
-        ("roc_auc_mean", "roc_auc_std", "Full-Frame Validation ROC-AUC"),
+        ("roc_auc_mean", "roc_auc_std", f"Full-Frame {split_prefix} ROC-AUC"),
         ("margin_roc_auc_mean", "margin_roc_auc_std", "Margin-Crop (10% Border Zeroed) ROC-AUC"),
     ]
     styles = {
@@ -209,9 +215,9 @@ def plot_classification_learning_curve(
         ax.grid(True, linestyle="--", alpha=0.35)
         ax.spines[["top", "right"]].set_visible(False)
 
-    axes[0].set_ylabel("Validation ROC-AUC")
+    axes[0].set_ylabel(f"{split_prefix} ROC-AUC")
     axes[1].legend(loc="lower right", frameon=True)
-    fig.suptitle(f"{task} · Frozen WSP vs. Random-Init Adam vs. WSP Warm-Start Adam (Validation Only)", fontsize=12)
+    fig.suptitle(f"{task} · Frozen WSP vs. Random-Init Adam vs. WSP Warm-Start Adam ({split_title})", fontsize=12)
 
     if out_path is not None:
         fig.savefig(out_path, dpi=180, bbox_inches="tight")
@@ -343,8 +349,9 @@ def run_segmentation_three_arm_validation(
     device: str = "cpu",
     out_dir: Path | None = None,
     resume: bool = True,
+    split_label: str = "val",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run Frozen WSP (K=0), Random-Init Adam, WSP Warm-Start Adam, and Trained Position-Only on validation.
+    """Run Frozen WSP (K=0), Random-Init Adam, WSP Warm-Start Adam, and Trained Position-Only.
 
     Checkpoints `runs_csv` after every `(seed, K)` so Colab disconnects resume automatically without rework.
     """
@@ -356,12 +363,13 @@ def run_segmentation_three_arm_validation(
     frozen_models = verify_response_lock(design, design_bytes, resp, expected_architecture=architecture)
     require(len(frozen_models) > 0, f"No valid frozen replies found in {responses_lock_path}")
 
-    runs_csv = (out_dir / f"{task}_val_runs.csv") if out_dir is not None else None
+    runs_csv = (out_dir / f"{task}_{split_label}_runs.csv") if out_dir is not None else None
     rows, done = _load_existing_runs(runs_csv) if resume else ([], set())
     if done:
         print(f"[{task}] Resuming from {runs_csv} ({len(done)} completed runs skipped)")
 
-    rep_path = (out_dir / f"{task}_representative_payloads.json") if out_dir is not None else None
+    rep_name = f"{task}_representative_payloads.json" if split_label == "val" else f"{task}_{split_label}_representative_payloads.json"
+    rep_path = (out_dir / rep_name) if out_dir is not None else None
     if resume and rep_path is not None and rep_path.is_file():
         rep_payloads: dict[str, dict[str, Any]] = json.loads(rep_path.read_text(encoding="utf-8"))
     else:
@@ -499,9 +507,15 @@ def run_segmentation_three_arm_validation(
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
-        runs_df.to_csv(out_dir / f"{task}_val_runs.csv", index=False)
-        summary_df.to_csv(out_dir / f"{task}_val_summary.csv", index=False)
-        plot_segmentation_learning_curve(summary_df, task=task, out_path=out_dir / f"{task}_learning_curve.png")
+        runs_df.to_csv(out_dir / f"{task}_{split_label}_runs.csv", index=False)
+        summary_df.to_csv(out_dir / f"{task}_{split_label}_summary.csv", index=False)
+        curve_name = f"{task}_learning_curve.png" if split_label == "val" else f"{task}_{split_label}_learning_curve.png"
+        plot_segmentation_learning_curve(
+            summary_df,
+            task=task,
+            out_path=out_dir / curve_name,
+            split_label=split_label,
+        )
 
     return runs_df, summary_df
 
@@ -511,12 +525,14 @@ def plot_segmentation_learning_curve(
     *,
     task: str,
     out_path: Path | None = None,
+    split_label: str = "val",
 ) -> Any:
     """Plot 2-panel segmentation learning curves: Region Dice (%) and Reference-Edge Recall (%) vs. K."""
+    split_title = "Validation" if split_label == "val" else "Held-Out Test"
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4), layout="constrained")
     panels = [
-        ("dice_mean", "dice_std", "Validation Region Dice (%)", "Dice (%)"),
-        ("edge_recall_mean", "edge_recall_std", "Validation Reference-Edge Recall (%)", "Edge Recall (%)"),
+        ("dice_mean", "dice_std", f"{split_title} Region Dice (%)", "Dice (%)"),
+        ("edge_recall_mean", "edge_recall_std", f"{split_title} Reference-Edge Recall (%)", "Edge Recall (%)"),
     ]
     styles = {
         "trained_position_only": ("^--", "#7c6f64", "Trained Position-Only"),
@@ -547,7 +563,7 @@ def plot_segmentation_learning_curve(
         ax.spines[["top", "right"]].set_visible(False)
 
     axes[1].legend(loc="lower right", frameon=True)
-    fig.suptitle(f"{task} · 82-Param Frozen WSP vs. Position-Only vs. Random-Init vs. WSP Warm-Start (Validation)", fontsize=11.5)
+    fig.suptitle(f"{task} · 82-Param Frozen WSP vs. Position-Only vs. Random-Init vs. WSP Warm-Start ({split_title})", fontsize=11.5)
 
     if out_path is not None:
         fig.savefig(out_path, dpi=180, bbox_inches="tight")

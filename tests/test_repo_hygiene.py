@@ -26,13 +26,22 @@ def test_no_raw_medical_data_or_private_files_in_repo():
 
 def test_all_notebooks_have_cleared_outputs():
     notebooks = sorted((REPO_ROOT / "notebooks").glob("*.ipynb"))
-    assert len(notebooks) == 3
+    assert len(notebooks) == 4
     for nb_path in notebooks:
         nb = json.loads(nb_path.read_text(encoding="utf-8"))
         for cell in nb["cells"]:
             if cell["cell_type"] == "code":
                 assert cell.get("outputs") == [], f"Uncleared outputs in {nb_path.name}"
                 assert cell.get("execution_count") is None, f"Uncleared execution_count in {nb_path.name}"
+
+
+def test_pre_registered_test_authorization_covers_all_six_tasks():
+    from wsp_core.guards import require_split_allowed
+
+    auth_path = REPO_ROOT / "docs/test_authorization.json"
+    assert auth_path.is_file(), "Missing docs/test_authorization.json"
+    for task in TASKS:
+        require_split_allowed("test", task=task, allow_test=True, authorization_file=auth_path)
 
 
 def test_all_six_tasks_have_prompts_configs_and_design_locks():

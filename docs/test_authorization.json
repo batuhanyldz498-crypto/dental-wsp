@@ -1,0 +1,64 @@
+{
+  "schema_version": "dental-wsp-test-auth-v1",
+  "approved": true,
+  "approved_at_utc": "2026-11-26T13:50:00+00:00",
+  "commit_sha": "05ae8d24940397c55b2c250a50860560a89888d2",
+  "authorized_tasks": [
+    "akudental_cls",
+    "akudental_seg",
+    "denpar_cls",
+    "denpar_seg",
+    "dentvoxel_cls",
+    "dentvoxel_seg"
+  ],
+  "sealed_test_cohorts": {
+    "akudental": 66,
+    "denpar": 200,
+    "dentvoxel_scans": 20
+  },
+  "protocol_notes": "Pre-registered single-pass held-out test evaluation mirroring all validation budgets, seeds, and hyperparameters after completing all 6/6 validation suites (including DentVoxel canonical RAS+ reorientation and 36/36 hash-unique valid locks). No hyperparameter tuning or retries permitted on held-out test splits.",
+  "frozen_schedules": {
+    "akudental_cls": {
+      "budgets": [2, 4, 8, 16, 32, 64, 200],
+      "seeds": [0, 1, 2, 3, 4],
+      "epochs": 200,
+      "lr": 0.005
+    },
+    "akudental_seg": {
+      "budgets": [1, 2, 4, 8, 16, 32, 64, 200],
+      "seeds": [0, 1, 2],
+      "epochs": 150,
+      "lr": 0.03,
+      "batch_size": 32,
+      "cosine_lr": true
+    },
+    "denpar_cls": {
+      "budgets": [2, 4, 8, 16, 32, 64, 128, 650],
+      "seeds": [0, 1, 2, 3, 4],
+      "epochs": 200,
+      "lr": 0.005
+    },
+    "denpar_seg": {
+      "budgets": [1, 2, 4, 8, 16, 32, 64, 200],
+      "seeds": [0, 1, 2],
+      "epochs": 150,
+      "lr": 0.03,
+      "batch_size": 32,
+      "cosine_lr": true
+    },
+    "dentvoxel_cls": {
+      "budgets": [2, 4, 8, 16, 32, 60],
+      "seeds": [0, 1, 2, 3, 4],
+      "epochs": 200,
+      "lr": 0.005
+    },
+    "dentvoxel_seg": {
+      "budgets": [1, 2, 4, 8, 16, 32, 60],
+      "seeds": [0, 1, 2],
+      "epochs": 120,
+      "lr": 0.03,
+      "batch_size": 4,
+      "cosine_lr": true
+    }
+  }
+}
