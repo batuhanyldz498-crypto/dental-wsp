@@ -1,6 +1,8 @@
-# Pre-Registered Benchmark Protocol (`dental-wsp` v0.1)
+# Initial Benchmark Protocol (`dental-wsp` v0.1)
 
-This document locks the scientific protocol for the `dental-wsp` 2 × 3 digital dentistry benchmark before collecting new Weight-Space Programming (WSP) replies or opening any held-out test split.
+> **Audit Note (v0.1.1):** This document preserves the original v0.1 protocol drafted before executing the benchmark runs. Several executed training schedules, budgets, and data-processing fixes subsequently deviated from the values listed below; see [`docs/DEVIATIONS.md`](DEVIATIONS.md) for the complete programmatic diff and commit-by-commit audit trail. Note also that "pre-registered" here refers to an internal Git-tracked protocol file, not an external timestamped registry such as OSF.
+
+This document locks the initial scientific protocol for the `dental-wsp` 2 × 3 digital dentistry benchmark before collecting new Weight-Space Programming (WSP) replies or opening any held-out test split.
 
 ---
 
@@ -12,7 +14,7 @@ Lindholz et al. ([arXiv:2611.12066](https://arxiv.org/abs/2611.12066)) evaluated
 
 - **Track 1 (Classification — Lindholz Mirror):** Compact 2D LeNet-style binary classifiers (`cls-lenet2d-v1`, 261 parameters), evaluated by ROC-AUC and PR-AUC.
 - **Track 2 (Segmentation — Dense 2D/3D Extension):** Exact **82-parameter** multiscale architectures (`periapical-wsp82-v1`, `pano-wsp82-v1`, `cbct-wsp82-v1`), evaluated by region Dice, pathway ablations, paired cross-group swaps, inside/outside ROI false positives, boundary/surface F1, reference-edge/surface recall, and in-box precision.
-- **Derived Engineering Audit (Zero Extra Labels):** Coarse enclosing-box localization from Track 2 predictions audited by **excluded annotated tooth-pixel / tooth-voxel fraction** (directly addressing the area-vs-pixel coverage gap identified in AKUDENTAL Study 1 Cell 12).
+- **Derived Engineering Audit (Zero Extra Labels):** Coarse enclosing-box localization from Track 2 predictions audited by **excluded annotated tooth-pixel / tooth-voxel fraction** and **predicted box valid-area/volume retention fraction** (addressing the gap between bounding-box area overlap and actual annotated tooth-pixel coverage).
 
 ---
 
