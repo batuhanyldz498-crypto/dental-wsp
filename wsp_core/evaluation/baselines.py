@@ -482,19 +482,24 @@ def fit_global_intensity_logreg(
     )
 
 
-def denpar_crown_edge_rule_score(image: np.ndarray) -> float:
-    """Zero-parameter hand-coded rule from `benchmarks/denpar/cls_prompt.md` for `denpar_cls`.
+def denpar_crown_edge_rule_score(image: np.ndarray, *, mode: str = "linear") -> float:
+    """Zero-parameter hand-coded orientation/crown-edge rules from `benchmarks/denpar/cls_prompt.md`.
 
-    Applies the prompt's 5x5 vertical bright-above -> dark-below crown-edge filter (top 2 rows +0.1,
-    middle row 0, bottom 2 rows -0.1) over the valid unpadded interior, then takes the mean signed
-    squared response `mean(ReLU(r)^2 - ReLU(-r)^2) = mean(r * |r|)`.
-
-    Nonlinear odd rectification avoids the telescoping-sum degeneracy of a linear mean of vertical
-    differences (which reduces to top-border minus bottom-border intensity and vanishes identically
-    under 10% border zeroing). Positive score predicts Upper (Maxillary) arch (`label = 1`).
+    Modes (all zero tunable parameters; positive score predicts Upper/Maxillary arch, `label = 1`):
+    - `"linear"`: literal mean response of the prompt's 5x5 vertical bright-above -> dark-below
+      filter (rows 0–1 = +0.1, row 2 = 0, rows 3–4 = -0.1) over the valid unpadded interior.
+      (Note: a linear sum of vertical differences telescopes toward top-vs-bottom borders and
+      degrades under 10% border zeroing.)
+    - `"rectified"`: mean signed squared response `mean(r * |r|) = mean(ReLU(r)^2 - ReLU(-r)^2)`,
+      emphasizing sharp high-contrast edges without telescoping.
+    - `"top_minus_bottom"`: `mean(top_half) - mean(bottom_half)` vertical brightness asymmetry
+      (direct check of whether Upper vs. Lower arch is primarily a coarse vertical-orientation cue).
     """
     img = np.asarray(image, dtype=np.float64)
     require(img.ndim == 2 and img.shape[0] >= 5 and img.shape[1] >= 5, "Image must be 2D and at least 5x5.")
+    if mode == "top_minus_bottom":
+        mid = img.shape[0] // 2
+        return float(img[:mid, :].mean() - img[mid:, :].mean())
     kernel = np.array(
         [
             [0.1, 0.1, 0.1, 0.1, 0.1],
@@ -507,21 +512,28 @@ def denpar_crown_edge_rule_score(image: np.ndarray) -> float:
     )
     windows = np.lib.stride_tricks.sliding_window_view(img, (5, 5))
     resp = np.einsum("hwxy,xy->hw", windows, kernel)
-    signed_energy = resp * np.abs(resp)
-    return float(signed_energy.mean())
+    if mode == "linear":
+        return float(resp.mean())
+    if mode == "rectified":
+        return float((resp * np.abs(resp)).mean())
+    raise ValueError(f"Unsupported denpar_crown_edge_rule_score mode: {mode!r}")
 
 
 def evaluate_denpar_crown_edge_baseline(
     val_samples: list[ClassificationSample],
     *,
+    mode: str = "linear",
     border_fraction: float = 0.10,
     sign_flip_threshold: float = 0.35,
 ) -> dict[str, Any]:
-    """Evaluate the zero-parameter vertical bright->dark crown-edge rule on `denpar_cls`."""
+    """Evaluate a zero-parameter vertical orientation / crown-edge rule on `denpar_cls`."""
     y_true = np.array([s.label for s in val_samples], dtype=np.int64)
-    scores = np.array([denpar_crown_edge_rule_score(s.image) for s in val_samples], dtype=np.float64)
+    scores = np.array([denpar_crown_edge_rule_score(s.image, mode=mode) for s in val_samples], dtype=np.float64)
     margin_scores = np.array(
-        [denpar_crown_edge_rule_score(cls_lenet2d_margin_ablation(s.image, border_fraction)) for s in val_samples],
+        [
+            denpar_crown_edge_rule_score(cls_lenet2d_margin_ablation(s.image, border_fraction), mode=mode)
+            for s in val_samples
+        ],
         dtype=np.float64,
     )
     roc_auc = compute_roc_auc(y_true, scores)
@@ -530,6 +542,7 @@ def evaluate_denpar_crown_edge_baseline(
     preds = (scores >= 0.0).astype(np.int64)
     acc = float(np.mean(preds == y_true))
     return {
+        "mode": mode,
         "roc_auc": float(roc_auc),
         "pr_auc": float(pr_auc),
         "accuracy": acc,
@@ -573,23 +586,28 @@ def evaluate_classification_baselines(
         }
     )
 
-    # 2. DenPAR zero-parameter hand-coded vertical crown-edge rule
+    # 2. DenPAR zero-parameter hand-coded vertical crown-edge & orientation rules
     if task == "denpar_cls":
-        edge_res = evaluate_denpar_crown_edge_baseline(val_samples)
-        rows.append(
-            {
-                "task": task,
-                "baseline": "handcoded_vertical_crown_edge",
-                "k_budget": 0,
-                "n_runs": 1,
-                "roc_auc_mean": edge_res["roc_auc"],
-                "roc_auc_std": np.nan,
-                "pr_auc_mean": edge_res["pr_auc"],
-                "margin_roc_auc_mean": edge_res["margin_ablated_roc_auc"],
-                "margin_roc_auc_std": np.nan,
-                "notes": f"Zero-param 5x5 bright->dark edge rule (acc={edge_res['accuracy']:.3f})",
-            }
-        )
+        for mode, bname, desc in (
+            ("linear", "handcoded_vertical_crown_edge_linear", "Zero-param mean 5x5 bright->dark vertical edge"),
+            ("rectified", "handcoded_vertical_crown_edge_rectified", "Zero-param signed squared 5x5 edge (r*|r|)"),
+            ("top_minus_bottom", "handcoded_top_minus_bottom_half", "Zero-param mean(top half) - mean(bottom half)"),
+        ):
+            edge_res = evaluate_denpar_crown_edge_baseline(val_samples, mode=mode)
+            rows.append(
+                {
+                    "task": task,
+                    "baseline": bname,
+                    "k_budget": 0,
+                    "n_runs": 1,
+                    "roc_auc_mean": edge_res["roc_auc"],
+                    "roc_auc_std": np.nan,
+                    "pr_auc_mean": edge_res["pr_auc"],
+                    "margin_roc_auc_mean": edge_res["margin_ablated_roc_auc"],
+                    "margin_roc_auc_std": np.nan,
+                    "notes": f"{desc} (acc={edge_res['accuracy']:.3f}, flip={edge_res['sign_flip_flagged']})",
+                }
+            )
 
     # 3. Reference: Frozen WSP mean +/- SD across all 6 locked replies
     if design_lock_path is not None and responses_lock_path is not None:

@@ -192,10 +192,12 @@ def test_classification_baselines_logreg_and_denpar_crown_edge_rule(tmp_path: Pa
                 img[36:58, 10:54] = 0.50
             split_list.append(ClassificationSample(f"c{offset+i}", f"g{offset+i}", img, label))
 
-    # Hand-coded rule separates Upper > 0 vs Lower < 0 on BOTH full and margin-cropped inputs
-    assert denpar_crown_edge_rule_score(val_cls[0].image) > 0.0  # label=1 (Upper)
-    assert denpar_crown_edge_rule_score(val_cls[1].image) < 0.0  # label=0 (Lower)
-    edge_res = evaluate_denpar_crown_edge_baseline(val_cls)
+    # Hand-coded rules separate Upper > 0 vs Lower < 0 on clean synthetic phantoms
+    assert denpar_crown_edge_rule_score(val_cls[0].image, mode="rectified") > 0.0  # label=1 (Upper)
+    assert denpar_crown_edge_rule_score(val_cls[1].image, mode="rectified") < 0.0  # label=0 (Lower)
+    assert denpar_crown_edge_rule_score(val_cls[0].image, mode="top_minus_bottom") > 0.0
+    assert denpar_crown_edge_rule_score(val_cls[1].image, mode="top_minus_bottom") < 0.0
+    edge_res = evaluate_denpar_crown_edge_baseline(val_cls, mode="rectified")
     assert edge_res["roc_auc"] == pytest.approx(1.0)
     assert edge_res["margin_ablated_roc_auc"] == pytest.approx(1.0)
     assert edge_res["accuracy"] == pytest.approx(1.0)
@@ -230,9 +232,14 @@ def test_classification_baselines_logreg_and_denpar_crown_edge_rule(tmp_path: Pa
         out_dir=tmp_path,
     )
     assert (tmp_path / "denpar_cls_val_baselines.csv").is_file()
-    assert {"constant_score", "handcoded_vertical_crown_edge", "frozen_wsp_mean6", "global_intensity_logreg"} <= set(
-        df_cls["baseline"]
-    )
+    assert {
+        "constant_score",
+        "handcoded_vertical_crown_edge_linear",
+        "handcoded_vertical_crown_edge_rectified",
+        "handcoded_top_minus_bottom_half",
+        "frozen_wsp_mean6",
+        "global_intensity_logreg",
+    } <= set(df_cls["baseline"])
     const_row = df_cls[df_cls["baseline"] == "constant_score"].iloc[0]
     assert const_row["roc_auc_mean"] == pytest.approx(0.5)
     assert const_row["pr_auc_mean"] == pytest.approx(0.5)
