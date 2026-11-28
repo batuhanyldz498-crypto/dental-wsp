@@ -291,10 +291,11 @@ def _score_seg_payload_fast(
     masks = _predict_masks_torch(architecture, payload, val_x, val_samples, device=device)
     reg, _ = group_segmentation_scores(val_samples, masks)
 
-    by_group: dict[str, list[tuple[float, float, float, float]]] = {}
+    by_group: dict[str, list[tuple[float, float, float, float, float]]] = {}
     for item in val_cache:
         s = item["sample"]
         valid = item["valid"]
+        valid_area = int(np.count_nonzero(valid))
         truth = item["truth"]
         ref_box = item["ref_box"]
         ref_edge = item["ref_edge"]
@@ -313,11 +314,15 @@ def _score_seg_payload_fast(
         if pred_box is not None:
             proposal[pred_box] = True
         prop_vol = int(np.count_nonzero(proposal))
+        prop_valid_vol = int(np.count_nonzero(proposal & valid))
+        box_valid_frac = prop_valid_vol / valid_area if valid_area > 0 else 0.0
         overlap = int(np.count_nonzero(proposal[ref_box])) if ref_box is not None else 0
         denom = prop_vol + ref_box_vol - overlap
         box_iou = overlap / denom if denom > 0 else 0.0
         excl_tooth = 1.0 - (int(np.count_nonzero(truth & proposal)) / ref_area) if ref_area > 0 else 0.0
-        by_group.setdefault(s.group_id, []).append((100.0 * bf1, 100.0 * recall, 100.0 * box_iou, 100.0 * excl_tooth))
+        by_group.setdefault(s.group_id, []).append(
+            (100.0 * bf1, 100.0 * recall, 100.0 * box_iou, 100.0 * box_valid_frac, 100.0 * excl_tooth)
+        )
 
     group_means = np.array([np.mean(v, axis=0) for v in by_group.values()], dtype=np.float64)
     return {
@@ -328,7 +333,8 @@ def _score_seg_payload_fast(
         "bf1_a_pct": float(group_means[:, 0].mean()),
         "edge_recall_a_pct": float(group_means[:, 1].mean()),
         "box_iou_a_pct": float(group_means[:, 2].mean()),
-        "excluded_tooth_a_pct": float(group_means[:, 3].mean()),
+        "box_valid_vol_a_pct": float(group_means[:, 3].mean()),
+        "excluded_tooth_a_pct": float(group_means[:, 4].mean()),
     }
 
 
@@ -500,6 +506,7 @@ def run_segmentation_three_arm_validation(
             bf1_mean=("bf1_a_pct", "mean"),
             edge_recall_mean=("edge_recall_a_pct", "mean"),
             edge_recall_std=("edge_recall_a_pct", "std"),
+            box_valid_vol_mean=("box_valid_vol_a_pct", "mean"),
             excluded_tooth_mean=("excluded_tooth_a_pct", "mean"),
         )
         .sort_values(["arm", "k_budget"])

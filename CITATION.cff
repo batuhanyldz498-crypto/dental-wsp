@@ -1,13 +1,13 @@
 cff-version: 1.2.0
 title: "dental-wsp: Weight-Space Programming Benchmark for Digital Dentistry"
-message: "If you use this benchmark, locked prompts, or weight locks in your research, please cite it as below."
+message: "If you use this benchmark, locked prompts, weight locks, or validation controls in your research, please cite it as below."
 type: software
 authors:
   - alias: "batuhanyldz498-crypto"
 repository-code: "https://github.com/batuhanyldz498-crypto/dental-wsp"
 license: MIT
-version: "0.1.0"
-date-released: "2026-11-27"
+version: "0.1.1"
+date-released: "2026-11-28"
 keywords:
   - weight-space-programming
   - medical-imaging
@@ -22,10 +22,83 @@ references:
     title: "Weight-Space Programming for Medical Imaging: Do We Still Need Training Data?"
     authors:
       - family-names: Lindholz
-        given-names: M.
+        given-names: Maximilian
       - family-names: Ruppel
-        given-names: R.
+        given-names: Richard
       - family-names: Milnik
-        given-names: A.
+        given-names: Annette
+      - family-names: Halskov
+        given-names: Sebastian
+      - family-names: Eminovic
+        given-names: Semil
+      - family-names: Hamm
+        given-names: Charlie A.
+      - family-names: Schmidt
+        given-names: Robin
+      - family-names: Knupfer
+        given-names: Anika
+      - family-names: Hutter
+        given-names: Jana
+      - family-names: Müller
+        given-names: Johanna P.
+      - family-names: Dominguez Aleixo
+        given-names: Carolina
+      - family-names: Nawabi
+        given-names: Jawed
+      - family-names: Vogel-Claussen
+        given-names: Jens
+      - family-names: Penzkofer
+        given-names: Tobias
     year: 2026
     url: "https://arxiv.org/abs/2611.12066"
+  - type: article
+    title: "AKUDENTAL teeth instance segmentation dataset: a cross-dataset analysis"
+    journal: "BMC Oral Health"
+    authors:
+      - family-names: Oz
+        given-names: Melih
+      - family-names: Sengul
+        given-names: Aycan
+      - family-names: Hatipoglu
+        given-names: Mukerrem
+      - family-names: Danisman
+        given-names: Taner
+    year: 2025
+    doi: "10.1186/s12903-025-07645-0"
+  - type: article
+    title: "DenPAR: Annotated Intra-Oral Periapical Radiographs Dataset for Machine Learning"
+    journal: "Scientific Data"
+    authors:
+      - family-names: Rasnayaka
+        given-names: Sumudu
+      - family-names: Leuke Bandara
+        given-names: Dhanushka
+      - family-names: Jayasundara
+        given-names: Amali
+      - family-names: Jayasinghe
+        given-names: Ruwan
+      - family-names: Wimalasiri
+        given-names: Chathura
+      - family-names: Rathnayake
+        given-names: Piumal
+      - family-names: Wijerathne
+        given-names: Shamod
+      - family-names: Ragel
+        given-names: Roshan
+      - family-names: Thambawita
+        given-names: Vajira
+      - family-names: Nawinne
+        given-names: Isuru
+    year: 2025
+    doi: "10.1038/s41597-025-05906-9"
+  - type: dataset
+    title: "DentVoxel: a fully annotated dental CBCT dataset with 38 instance anatomical structures"
+    authors:
+      - family-names: Zhou
+        given-names: You
+      - family-names: Xu
+        given-names: Yan
+      - family-names: Tarce
+        given-names: Mihai-Adrian
+    doi: "10.6084/m9.figshare.31239889"
+    url: "https://figshare.com/articles/dataset/DentVoxel_a_fully_annotated_dental_CBCT_dataset_with_38_instance_anatomical_structures/31239889"

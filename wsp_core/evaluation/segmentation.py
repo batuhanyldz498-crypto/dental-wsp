@@ -1,13 +1,15 @@
-"""Unified 2D/3D segmentation evaluation generalizing AKUDENTAL Cells 5–12.
+"""Unified 2D/3D segmentation evaluation suite for `dental-wsp`.
 
 Includes:
 - Group-weighted region Dice, IoU, Precision, Recall
 - Pathway ablations (A intact, B image-only, C position-only) with invariance check
 - Paired cross-group swaps on identical valid-pixel / valid-voxel patterns
 - Inside/outside reference-ROI false positives per 1,000 total valid pixels/voxels
+  and outside-ROI share of net grid-removed FPs (A vs B)
 - Full-canvas/volume boundary/surface F1 and reference-edge recall (2-px / 2-voxel tolerance)
 - In-box predicted-edge precision and paired reference-edge fate (preserved, gained, lost, missed)
-- Coarse enclosing-box localization: IoU, reference-box coverage, and excluded tooth-pixel/voxel rate
+- Coarse enclosing-box localization: IoU, reference-box coverage, predicted box valid-area/volume
+  retention fraction, and excluded annotated tooth-pixel/voxel rate
 """
 
 from __future__ import annotations
@@ -29,6 +31,10 @@ from wsp_core.architectures.seg_wsp82_3d import (
     seg_wsp82_3d_without_grid,
 )
 from wsp_core.guards import require
+
+# Clear column headers for newly generated CSV outputs (legacy sealed CSVs retain historical names).
+OUTSIDE_FP_SHARE_COLUMN = "Outside-ROI share of grid-removed FPs (A vs B) (%)"
+BOX_VALID_FRAC_COLUMN = "Predicted box valid fraction A (%)"
 
 
 @dataclass(frozen=True)
@@ -61,7 +67,7 @@ def _expand_cardinal(mask: np.ndarray) -> np.ndarray:
 
 
 def contour_and_band(mask: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Inner foreground contour and inclusive 2-step tolerance band (matches AKUDENTAL Cell 11)."""
+    """Inner foreground contour and inclusive 2-step cardinal tolerance band."""
     fg = mask & valid
     bg = valid & ~mask
     edge = fg & _expand_cardinal(bg)
@@ -268,12 +274,89 @@ def evaluate_segmentation_swaps(
     }
 
 
+def score_segmentation_masks(
+    samples: list[SegmentationSample],
+    predictions: dict[str, np.ndarray],
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Score arbitrary binary prediction masks using the exact benchmark region, boundary, and box metrics.
+
+    Returns `(metrics_dict, per_group_dice_pct)` where every metric is equal-group-weighted in `%`.
+    Shared by trivial/non-LLM baselines and learned arms for strict metric parity.
+    """
+    reg, group_dice = group_segmentation_scores(samples, predictions)
+    by_group: dict[str, list[tuple[float, float, float, float, float]]] = defaultdict(list)
+
+    for s in samples:
+        valid = s.valid > 0
+        valid_area = int(np.count_nonzero(valid))
+        truth = (s.target > 0) & valid
+        pred = (predictions[s.sample_id] > 0) & valid
+        ref_area = int(np.count_nonzero(truth))
+        ref_box = bounding_slices(truth)
+        require(ref_box is not None and ref_area > 0, f"Empty reference for {s.sample_id}.")
+        ref_edge, ref_band = contour_and_band(truth, valid)
+        ref_box_vol = int(np.prod([sl.stop - sl.start for sl in ref_box]))
+
+        pred_edge, pred_band = contour_and_band(pred, valid)
+        prec = float(np.count_nonzero(ref_band[pred_edge]) / pred_edge.size) if pred_edge.size else 0.0
+        recall = float(pred_band[ref_edge].mean()) if ref_edge.size else 0.0
+        bf1 = 2.0 * prec * recall / (prec + recall) if (prec + recall) > 0.0 else 0.0
+
+        pred_box = bounding_slices(pred)
+        proposal = np.zeros_like(valid, dtype=bool)
+        if pred_box is not None:
+            proposal[pred_box] = True
+        prop_vol = int(np.count_nonzero(proposal))
+        prop_valid_vol = int(np.count_nonzero(proposal & valid))
+        box_valid_frac = prop_valid_vol / valid_area if valid_area > 0 else 0.0
+        overlap = int(np.count_nonzero(proposal[ref_box]))
+        denom = prop_vol + ref_box_vol - overlap
+        box_iou = overlap / denom if denom > 0 else 0.0
+        excl_tooth = 1.0 - (int(np.count_nonzero(truth & proposal)) / ref_area)
+        by_group[s.group_id].append(
+            (100.0 * bf1, 100.0 * recall, 100.0 * box_iou, 100.0 * box_valid_frac, 100.0 * excl_tooth)
+        )
+
+    group_means = np.array([np.mean(v, axis=0) for v in by_group.values()], dtype=np.float64)
+    metrics = {
+        "dice_pct": 100.0 * reg["dice"],
+        "iou_pct": 100.0 * reg["iou"],
+        "precision_pct": 100.0 * reg["precision"],
+        "recall_pct": 100.0 * reg["recall"],
+        "bf1_pct": float(group_means[:, 0].mean()),
+        "edge_recall_pct": float(group_means[:, 1].mean()),
+        "box_iou_pct": float(group_means[:, 2].mean()),
+        "box_valid_vol_pct": float(group_means[:, 3].mean()),
+        "excluded_tooth_pct": float(group_means[:, 4].mean()),
+        "groups": int(reg["groups"]),
+    }
+    group_dice_pct = {g: 100.0 * d for g, d in group_dice.items()}
+    return metrics, group_dice_pct
+
+
 def evaluate_segmentation_paired_audit(
     payload: dict[str, Any],
     samples: list[SegmentationSample],
     threshold: float = 0.0,
 ) -> dict[str, Any]:
-    """Full Cell 11 + Cell 12 audit plus excluded annotated tooth-pixel/voxel ROI rate."""
+    """Paired intact (A) vs. image-only (B) false-positive, boundary, and enclosing-box audit.
+
+    Notes on key metrics
+    --------------------
+    - `outside_fp_reduction_share_pct` (dict key retained for backward compatibility; labeled
+      `"Outside-ROI share of grid-removed FPs (A vs B) (%)"` in new CSVs and tables):
+      Defined as `100 * fp_saved_out / (fp_saved_out + fp_saved_in)` when total net FPs removed
+      by the spatial grid (`fp_saved_out + fp_saved_in`, comparing Arm A vs. Arm B) is positive,
+      else `0.0`. This is a signed share of *net* grid-removed FPs, NOT a percentage reduction of
+      outside-ROI FPs: it can exceed `100%` when the grid removes outside-ROI FPs while increasing
+      inside-ROI FPs (`fp_saved_in < 0`, shrinking the denominator), or become negative when
+      outside-ROI FPs increase (`fp_saved_out < 0`) while inside-ROI FPs decrease more strongly.
+    - `box_valid_vol_a_pct`, `box_valid_vol_b_pct`:
+      Percentage of valid pixels/voxels retained inside the predicted enclosing bounding box
+      (`100 * |pred_box ∩ valid| / |valid|`). Reported alongside `excluded_tooth_a_pct` and
+      `box_iou_a_pct` because near-0% excluded tooth voxels can be trivial when the predicted
+      box spans a large fraction of the valid canvas/volume.
+    """
     ablation = evaluate_segmentation_ablation(payload, samples, threshold=threshold)
     masks_a = ablation["A"]["masks"]
     masks_b = ablation["B"]["masks"]
@@ -324,12 +407,14 @@ def evaluate_segmentation_paired_audit(
             else:
                 in_box_prec = 0.0
 
-            # Enclosing predicted box localization & actual excluded tooth-pixel/voxel rate
+            # Enclosing predicted box localization, valid-volume retention, & excluded tooth rate
             pred_box = bounding_slices(pred)
             proposal = np.zeros_like(valid, dtype=bool)
             if pred_box is not None:
                 proposal[pred_box] = True
             prop_vol = int(np.count_nonzero(proposal))
+            prop_valid_vol = int(np.count_nonzero(proposal & valid))
+            box_valid_frac = prop_valid_vol / valid_area if valid_area > 0 else 0.0
             box_overlap = int(np.count_nonzero(proposal[ref_box]))
             box_iou = box_overlap / (prop_vol + ref_box_vol - box_overlap) if (prop_vol + ref_box_vol - box_overlap) else 0.0
             box_cov = box_overlap / ref_box_vol
@@ -344,6 +429,7 @@ def evaluate_segmentation_paired_audit(
                 "in_box_prec_pct": 100.0 * in_box_prec,
                 "box_iou_pct": 100.0 * box_iou,
                 "box_cov_pct": 100.0 * box_cov,
+                "box_valid_vol_pct": 100.0 * box_valid_frac,
                 "excluded_tooth_pct": 100.0 * excluded_tooth_rate,
                 "hit_ref": hit_ref,
             }
@@ -374,6 +460,8 @@ def evaluate_segmentation_paired_audit(
                 "box_iou_b_pct": arm_stats["B"]["box_iou_pct"],
                 "box_cov_a_pct": arm_stats["A"]["box_cov_pct"],
                 "box_cov_b_pct": arm_stats["B"]["box_cov_pct"],
+                "box_valid_vol_a_pct": arm_stats["A"]["box_valid_vol_pct"],
+                "box_valid_vol_b_pct": arm_stats["B"]["box_valid_vol_pct"],
                 "excluded_tooth_a_pct": arm_stats["A"]["excluded_tooth_pct"],
                 "excluded_tooth_b_pct": arm_stats["B"]["excluded_tooth_pct"],
                 "edges_missed_pct": 100.0 * float(counts[0]),
