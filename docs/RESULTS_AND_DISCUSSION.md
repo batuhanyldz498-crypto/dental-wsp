@@ -1,6 +1,6 @@
 # Unified 3-Modality Results & Discussion (`dental-wsp`)
 
-> **TL;DR:** We benchmarked Weight-Space Programming (WSP) — where blind large language models (LLMs) directly output all weights of compact neural networks without seeing training images — across six dental imaging tasks spanning 2D panoramic (AKUDENTAL), 2D periapical (DenPAR), and 3D cone-beam CT (CBCT; DentVoxel) data using 82-parameter segmenters and 261-parameter classifiers. On sealed held-out test splits, frozen zero-shot WSP achieves 42.4–46.6% mean Dice across 6 replies on tooth segmentation and `0.868 ± 0.059` ROC-AUC on axial maxillary-sinus classification in HU-windowed CBCT slices, and warm-starting from WSP weights outperformed epoch-matched random initialization at low `K` on `akudental_seg`, `dentvoxel_seg`, and `dentvoxel_cls`. However, major outcomes are negative or mixed: frozen 2D segmentation never exceeds trained position-only priors or trivial DenPAR intensity baselines (all-foreground = 53.9% validation Dice; train-selected global threshold = 63.6% vs. 43.3% frozen WSP), `K_max` warm-starting provides no consistent gain over random initialization, `akudental_cls` stays at chance for every arm (`n = 16` test negatives), and frozen `denpar_cls` averages `0.467 ± 0.217` ROC-AUC with 3/3 `opus` sign flips while a zero-parameter top-vs-bottom intensity rule reaches 0.880 validation AUC. Finally, the v0.1.0 low-`K` random-init collapse on `dentvoxel_seg` (`K = 1..4`) is confounded by epoch-based step scaling (120 steps at `K = 1..4` vs. 1,800 at `K = 60`) and zero initial output bias under `<2%` foreground prevalence; v0.1.1 adds fixed-step, prior-bias, and non-LLM baseline controls (validation split only) alongside a full deviation log in [`docs/DEVIATIONS.md`](DEVIATIONS.md).
+> **TL;DR:** We benchmarked Weight-Space Programming (WSP) — where blind large language models (LLMs) directly output all weights of compact neural networks without seeing training images — across six dental imaging tasks spanning 2D panoramic (AKUDENTAL), 2D periapical (DenPAR), and 3D cone-beam CT (CBCT; DentVoxel) data using 82-parameter segmenters and 261-parameter classifiers. On sealed held-out test splits, frozen zero-shot WSP achieves 42.4–46.6% mean Dice across 6 replies on tooth segmentation and `0.868 ± 0.059` ROC-AUC on axial maxillary-sinus classification in HU-windowed CBCT slices, where validation baselines confirm it clearly beats a 3-feature global-intensity logistic regression trained on all 60 scans (`0.870` vs. `0.719` Full / `0.854` vs. `0.611` Margin AUC). However, all other major claims fail or invert under fair controls: frozen 2D/3D segmentation is beaten on DenPAR by all-foreground (`53.9%` vs. `43.3%` val Dice) and a single train-selected threshold (`63.6%`), and on DentVoxel by a single HU-window threshold (`51.2%` vs. `47.4%` val Dice); `akudental_cls` stays at chance for every arm (`n = 16` test negatives); and frozen `denpar_cls` averages `0.467 ± 0.217` test AUC with 3/3 `opus` sign flips while a zero-parameter top-vs-bottom brightness rule reaches `0.880` validation AUC. Most importantly, **the v0.1.0 low-`K` WSP warm-start advantages on both `dentvoxel_seg` and `akudental_seg` do not survive fair fixed-step and log-odds prior-bias controls on validation**: simply initializing `output_bias = log(p/(1-p))` eliminates 100% of 3D random-init collapses (`0/60` collapsed runs) and beats all-6 WSP warm-start at every budget (`K = 1..8`) on `dentvoxel_seg` (`82.2%` vs. `77.4%` at `K = 1, S = 1,800`) and every budget (`K = 1..64`) on `akudental_seg` (`63.2–69.5%` vs. `60.9–68.5%` at `S = 1,050`). All deviations from the initial protocol are logged in [`docs/DEVIATIONS.md`](DEVIATIONS.md).
 
 **Context & Non-Clinical Disclaimer:** Standard supervised deep tooth segmentation models (e.g., U-Net / nnU-Net) routinely exceed **90% Dice**. The 82-parameter and 261-parameter models evaluated here are **mechanistic research probes**, not competitors to supervised models and not suitable for clinical or diagnostic use.
 
@@ -25,8 +25,8 @@ All headline numbers below report **means ± SD across all 6 locked replies** (`
 | **DentVoxel** 3D CBCT (`20` / `20` scans, RAS+, `K_max = 60/60`) | `cbct-wsp82-v1` (82) | 47.42% → **45.54 ± 3.13%** | +10.95 ± 1.72 pp | 26.35 ± 2.79 pp | 90.20 ± 4.09% | 18.37% / 0.00%† | 7.32% → 7.12 ± 0.76% *(fails in 3D)* | `K = 1..4`: 56.9–57.5% vs. 0.00% Random collapse‡ | 78.87 ± 4.79% vs. 75.83 ± 12.79% *(n.s., 3 seeds)* |
 
 *\* **Definition:** **Outside-ROI share of grid-removed FPs (A vs B)** = `100 × (outside-ROI FPs removed by the spatial grid) / (total net FPs removed by the grid)` comparing intact arm A vs. image-only arm B (`100 × fp_saved_out / (fp_saved_out + fp_saved_in)` when net FPs removed > 0). Because inside-ROI FPs can increase when the spatial grid is added (`fp_saved_in < 0`), this signed share can exceed `100%` (e.g., DenPAR `astra_2` = `128.99%`) or become negative. It is NOT a percentage reduction of total outside-ROI FPs.*
-*† **Box-volume caveat:** Near-0% excluded tooth pixels/voxels is near-trivial when the predicted enclosing box is oversized relative to the tooth ROI. On DenPAR validation, frozen WSP enclosing boxes retain **99.37%** of the valid frame (`Box IoU = 69.33%` on test). On DentVoxel test, 3D `Box IoU` is only `15.73–22.51%` (mean `18.37%`), indicating oversized 3D boxes; v0.1.1 adds `box_valid_vol_a_pct` to audit valid-volume retention directly.*
-*‡ **Step-budget & bias confound:** Under the executed v0.1.0 epoch schedule (`120` epochs, `batch_size = 4`), `dentvoxel_seg` `K = 1..4` received only `120` optimizer steps (vs. `1,800` at `K = 60`) with `output_bias = 0.0` under `<2%` foreground prevalence. See Section 4.2 for fixed-step and prior-bias controls.*
+*† **Box-volume caveat:** Near-0% excluded tooth pixels/voxels is near-trivial when the predicted enclosing box spans most of the image/volume. On validation, frozen WSP enclosing boxes retain **99.37%** of the valid frame on DenPAR, **67.84%** on AKUDENTAL, and **59.52%** of the valid 3D CBCT volume on DentVoxel (`Box IoU = 15.7–22.5%` on test).*
+*‡ **Falsified by v0.1.1 fixed-step & prior-bias controls (Section 4.2):** Under the v0.1.0 epoch schedule (`120` epochs, `batch_size = 4`, `output_bias = 0.0`), `dentvoxel_seg` `K = 1..4` received only `120` steps (vs. `1,800` at `K = 60`) under `<2%` foreground prevalence, and `akudental_seg` `K = 1..32` received only `150` steps (vs. `1,050` at `K = 200`). When controlled with log-odds prior bias and equal step budgets on validation, `random_prior_bias` eliminates 100% of collapses and **outperforms** all-6 WSP warm-start at every `K` on both `dentvoxel_seg` and `akudental_seg`.*
 
 ### Table 2 · Track 1 Classification (`cls-lenet2d-v1`, 261 Params · Held-Out Test with Hanley–McNeil 95% CIs)
 
@@ -60,10 +60,11 @@ Stating the negative, null, and confounded findings plainly:
    - Upper vs. Lower periapical arch classification is primarily a coarse vertical **image-orientation** task: on DenPAR validation (Section 4.1), the zero-parameter rule `mean(top_half) - mean(bottom_half)` achieves **`0.880` Full / `0.888` Margin-Crop AUC** without any LLM weights or training labels (while the zero-parameter rectified sharp-edge rule gets `0.263` / `0.220`, reproducing the exact sign-flip behavior observed in `opus_1..3`).
 5. **LLM family (`astra` vs. `opus`) differences are small-sample (`n = 3`) and change direction across tasks:**
    - `astra` has higher frozen mean on `denpar_seg` (`49.03%` vs. `35.66%`), `akudental_seg` (`48.35%` vs. `44.81%`), and `denpar_cls` (`0.654` vs. `0.280`), whereas `opus` has higher frozen mean on `dentvoxel_seg` (`47.12%` vs. `43.97%`) and higher warm-start `K_max` on segmentation (`akudental_seg`, `denpar_seg`, `dentvoxel_seg`). With `n = 3` replies per family, no general family ranking can be concluded.
-6. **Apparent 3D low-`K` random-init collapse is confounded by step count and initial bias:**
-   - At `K ∈ {1, 2, 4}` on `dentvoxel_seg`, epoch-based training gave random-init only `120` Adam steps with `output_bias = 0.0` despite `<2%` foreground voxels. Whether any low-`K` warm-start advantage survives fixed step budgets (`S = 480, 1800`) and log-odds prior-bias initialization is an open empirical question tested by the v0.1.1 validation factorial control (Section 4.2).
+6. **Low-`K` segmentation warm-start advantages do NOT survive fair step-budget & prior-bias controls:**
+   - On `dentvoxel_seg` validation (540 runs; Section 4.2), initializing random init with log-odds prior bias (`output_bias = log(p/(1-p))`) eliminates **100% of collapses (`0/60`)** and beats all-6 WSP warm-start at every budget (`K = 1, 2, 4, 8`) under **all three schedules** — including the original 120 epochs (`69.86%` vs. `60.22%` at `K = 1`, `−9.64 pp`), `S = 480` (`80.49%` vs. `72.11%`, `−8.37 pp`), and `S = 1,800` (`82.19%` vs. `77.36%`, `−4.83 pp`, 5/5 seeds negative). At `S = 1,800`, even the 1-active-filter `human_init` (`79.85–80.67%`) beats all-6 WSP warm-start (`77.36–78.81%`).
+   - On `akudental_seg` validation (450 runs; Section 4.2), matching optimizer steps (`S = 1,050`) eliminates the entire `+11–16 pp` epoch-schedule warm-start lead: `random_prior_bias` (`63.18–69.55%` Dice, `44.0–51.2%` BF1, `46.1–59.2%` Edge Rec) beats all-6 WSP warm-start (`60.95–68.54%` Dice, `38.3–45.3%` BF1, `38.6–48.7%` Edge Rec) at **all 5 budgets (`K = 1, 4, 16, 32, 64`)**.
 7. **Near-0% excluded tooth pixels/voxels reflects oversized bounding boxes:**
-   - On `dentvoxel_seg`, `0.00%` excluded tooth voxels coincides with `3D Box IoU = 15.73–22.51%`; on `denpar_seg`, `0.22%` test (`0.01%` val) excluded pixels coincides with predicted boxes retaining `99.37%` of the valid frame.
+   - Validation audits confirm frozen WSP predicted boxes retain **99.37%** of the valid frame on DenPAR, **67.84%** on AKUDENTAL, and **59.52%** of the valid 3D volume on DentVoxel (`3D Box IoU = 15.7–22.5%` on test), making near-0% excluded tooth voxels near-trivial.
 
 ---
 
@@ -141,76 +142,98 @@ All 12 aggregate CSVs under [`results/sealed_test/`](../results/sealed_test/) ar
 
 ## 4. Validation Controls & Non-LLM Baselines (v0.1.1 · Validation Split Only)
 
-All v0.1.1 baseline and optimization-control experiments operate **exclusively on `split == "train"` and `split == "val"`** (held-out test splits stay sealed).
+All v0.1.1 baseline and optimization-control experiments were executed **exclusively on `split == "train"` and `split == "val"`** (held-out test splits stay sealed). All 14 non-private aggregate CSVs and both SVG figures are archived under [`results/validation_controls/`](../results/validation_controls/).
 
 ### 4.1 Trivial & Non-LLM Baselines (`wsp_core/evaluation/baselines.py`)
 
-#### DenPAR Validation — Executed (`results/validation_controls/denpar_*_val_baselines.csv`)
+#### Track 2 Segmentation Baselines (Validation Split · All 3 Modalities)
 
-**`denpar_seg` (`n_val = 150` periapicals; `t* = 0.2500` fit on `650` train images, train Dice = `66.03%`):**
-
-| Baseline / Reference Arm (`denpar_seg`, VAL) | `K` | Dice (%) | BF1 (%) | Edge Rec (%) | Box IoU (%) | Pred. Box Valid Frac (%) | Excl. Tooth (%) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `all_foreground` (predict all valid pixels) | 0 | 53.90 | 0.00 | 0.00 | 68.33 | 100.00 | 0.00 |
-| `per_image_otsu` (mean `t = 0.482`) | 0 | 43.58 | 22.06 | 30.47 | 68.33 | 100.00 | 0.00 |
-| `global_train_threshold` (`t* = 0.2500`, train only) | 650 | 63.61 | 33.12 | 43.78 | 68.33 | 100.00 | 0.00 |
-| `human_82p_frozen` (1 center-tap filter, `fb = -0.2500`) | 0 | 63.61 | 33.12 | 43.78 | 68.33 | 100.00 | 0.00 |
-| `frozen_wsp_mean6` (all 6 replies, mean ± SD) | 0 | 43.35 ± 7.11 | 12.41 | 16.43 | 68.70 | 99.37 | 0.01 |
-| `trained_position_only` (`K_max = 200`, val reference) | 200 | 65.37 | — | 4.70 | — | — | — |
-| `human_82p_warmstart` (`K = 1..200`, 3 seeds) | 1..200 | *PENDING (GPU)* | *PENDING* | *PENDING* | *PENDING* | *PENDING* | *PENDING* |
-
-**`denpar_cls` (`n_val = 150` periapicals; Upper arch prevalence = `0.3533`):**
-
-| Baseline / Reference Arm (`denpar_cls`, VAL) | `K` | Full ROC-AUC *(Mean ± SD)* | PR-AUC | Margin-Crop ROC-AUC *(Mean ± SD)* | Notes |
-|---|---:|---:|---:|---:|---|
-| `constant_score` | 0 | 0.5000 | 0.3533 | 0.5000 | Constant `0.0` |
-| `handcoded_vertical_crown_edge_linear` | 0 | 0.6427 | 0.4872 | 0.4504 | Mean 5×5 bright→dark edge (telescopes under border zeroing) |
-| `handcoded_vertical_crown_edge_rectified` | 0 | 0.2630 | 0.2462 | 0.2204 | Signed squared 5×5 edge (`flip = True`, mirrors `opus` sign flip) |
-| `handcoded_top_minus_bottom_half` | 0 | 0.8796 | 0.7373 | 0.8883 | Zero-param `mean(top_half) - mean(bottom_half)` (acc `82.7%`) |
-| `frozen_wsp_mean6` (all 6 replies) | 0 | 0.4279 ± 0.1844 | 0.3243 | 0.5008 ± 0.2411 | 3/3 `opus` sign flips |
-| `global_intensity_logreg` (`K = 2`) | 2 | 0.5868 ± 0.0624 | 0.4222 | 0.6180 ± 0.0630 | 3 global features, 5 seeds |
-| `global_intensity_logreg` (`K = 64`) | 64 | 0.6210 ± 0.0232 | 0.4379 | 0.6479 ± 0.0180 | 3 global features, 5 seeds |
-| `global_intensity_logreg` (`K = 650`) | 650 | 0.6376 ± 0.0000 | 0.4435 | 0.6590 ± 0.0000 | 3 global features, full train |
-
-#### AKUDENTAL & DentVoxel Validation Baselines — Pending BYOD Execution
-
-Raw AKUDENTAL and DentVoxel datasets are BYOD (not stored in Git) and were not available in the local CPU environment used to prepare v0.1.1. Execute via `notebooks/01_akudental_wsp_validation.ipynb` (Step 8), `notebooks/03_dentvoxel_cbct_wsp_benchmark.ipynb` (Step 8), or the CLI commands in `README.md` to populate `results/validation_controls/{akudental,dentvoxel}_{seg,cls}_val_baselines.csv`:
-
-| Task (VAL) | `all_foreground` / `constant_score` | `per_image_otsu` | `global_train_threshold` (`t*`) | `human_82p_frozen` / `global_intensity_logreg` | `human_82p_warmstart` | `frozen_wsp_mean6` (val ref) | `trained_position_only` (`K_max` val ref) |
+| Task (`n_val`) | `all_foreground` *(Dice / Box Valid %)* | `per_image_otsu` *(Dice / BF1 / Edge Rec)* | `global_train_threshold` *(t\* · Dice / BF1 / Edge Rec / Box Valid %)* | `human_82p_frozen` *(Dice / BF1 / Edge Rec)* | `human_82p_warmstart` *(`K=1` → `K_max`, 3 seeds)* | `frozen_wsp_mean6` *(Dice ± SD / BF1 / Edge Rec / Box Valid %)* | `trained_position_only` *(`K_max` val ref)* |
 |---|---|---|---|---|---|---|---|
-| `akudental_seg` (`n = 67`) | *PENDING* | *PENDING* | *PENDING* | *PENDING* | *PENDING* | 46.98% Dice | 59.56% Dice |
-| `dentvoxel_seg` (`20` scans) | *PENDING* | *PENDING* | *PENDING* | *PENDING* | *PENDING* | 47.42% Dice | 7.32% Dice |
-| `akudental_cls` (`n = 67`) | 0.500 AUC | — | — | *PENDING (logreg `K = 2..200`)* | — | 0.511 / 0.593 AUC | — |
-| `dentvoxel_cls` (`20` scans) | 0.500 AUC | — | — | *PENDING (logreg `K = 2..60`)* | — | 0.870 / 0.854 AUC | — |
+| **`denpar_seg`** (`150`) | **53.90%** / 100.0% | 43.58% / 22.06% / 30.47% | `t*=0.25`: **63.61%** / 33.12% / 43.78% / 100.0% | **63.61%** / 33.12% / 43.78% | 58.71% → 64.28 ± 0.14% *(Edge Rec 4.35%)* | 43.35 ± 7.11% / 12.41% / 16.43% / **99.37%** | 65.37% *(Edge Rec 4.70%)* |
+| **`akudental_seg`** (`67`) | 17.34% / 100.0% | 24.21% / 22.57% / 42.05% | `t*=0.43`: 24.88% / 22.63% / 44.24% / 100.0% | 24.88% / 22.63% / 44.23% | 43.69% → 58.21 ± 0.03% *(Edge Rec 5.50%)* | **46.98 ± 6.12%** / 29.58% / 32.25% / **67.84%** | 59.56% *(Edge Rec 5.41%)* |
+| **`dentvoxel_seg`** (`20` scans) | 2.00% / 100.0% | 3.31% / 6.52% / 33.55% | `t*=0.74` *(+1,960 HU-win)*: **51.18%** / 58.09% / 91.38% / 81.64% | **51.18%** / 58.09% / 91.37% | 52.51% → **80.96 ± 0.04%** *(Edge Rec 92.65%, Box 28.3%)* | 47.42 ± 3.19% / 51.60% / 96.08% / **59.52%** | 7.32% |
 
-### 4.2 Fixed-Step & Prior-Bias Factorial Controls (`wsp_core/training/controls.py`) — Pending GPU/BYOD Execution
+Key baseline findings (Track 2):
+- **DenPAR:** Frozen WSP (`43.35%` Dice) loses to predicting **all valid pixels (`53.90%`)**, loses on BF1/Edge Rec to zero-label **Otsu** (`22.06% / 30.47%` vs. `12.41% / 16.43%`), and trails a single train-selected threshold (`63.61%`) by `20.3 pp`. Frozen WSP enclosing boxes retain `99.37%` of the valid frame.
+- **DentVoxel:** A single HU-window threshold (`t* = 0.74`, `+1,960` on the `[-1000, +3000]` window; `human_82p_frozen`) reaches **`51.18%` Val Dice / `58.09%` Surface F1**, exceeding blind frozen WSP (`47.42 ± 3.19%` / `51.60%`) — though `t*` uses 60 training scans whereas frozen WSP is blind zero-shot and trims the enclosing-box valid fraction from `81.64%` to `59.52%`. Warm-started `human_82p_warmstart` (with only 1 active filter + `3 × 3 × 3` grid) reaches `80.96 ± 0.04%` at `K = 60` (`box_valid_vol = 28.31%`), outperforming all-6 `wsp_warmstart` (`79.21%`).
+- **AKUDENTAL:** Intensity thresholding alone gets only `24.88%` Dice because bone, spine, and jaws share panoramic tooth intensities. Frozen WSP's `46.98 ± 6.12%` Dice comes from its hand-authored `3 × 5` panoramic arch grid (without the grid, frozen WSP image-only Dice is `21.13%` val / `20.01%` test — below global thresholding `24.88%`). Note also that `human_82p_warmstart` stalls near `trained_position_only` on 2D (`58.21%` on AKUDENTAL, `64.28%` on DenPAR, Edge Rec `4.3–5.5%`) because its filters 1–5 are initialized to exact zero with ReLU (zero gradient) and a single center-tap intensity filter cannot separate overlapping 2D anatomy.
 
-To test whether the v0.1.0 low-`K` random-init collapse (`0.00%` Dice at `K = 1..4` on `dentvoxel_seg`) survives a fair optimizer control, `wsp_core/training/controls.py` implements the full factorial on `split == "val"` (never `test`):
-- **Primary (`dentvoxel_seg` validation, `20` scans):** `K ∈ {1, 2, 4, 8}`, `seeds = 0..4`, `init ∈ {random_zero_bias, random_prior_bias, wsp_warmstart (all 6 replies), human_init}` × `schedule ∈ {original_epochs_120, fixed_steps_480, fixed_steps_1800}` (identical step budgets for all arms).
-- **Secondary (`akudental_seg` validation, `67` films):** `K ∈ {1, 4, 16, 32, 64}`, `seeds = 0..4`, `schedule ∈ {original_epochs_150, fixed_steps_1050}`.
-- **Outputs:** Aggregate CSVs (`*_factorial_summary.csv`, `*_factorial_paired_diffs.csv`, `*_factorial_paired_by_seed.csv`) reporting Dice mean ± SD, 95% scan/image-bootstrap CI, collapsed runs (`Dice < 1%`), and paired `warm − random` differences per `(seed, K)`, plus one SVG figure (`*_factorial_controls.svg`).
+#### Track 1 Classification Baselines (Validation Split · All 3 Modalities)
 
-| Schedule (`dentvoxel_seg`, VAL) | `K` | `random_zero_bias` *(Mean ± SD, 95% CI, Collapses)* | `random_prior_bias` *(Mean ± SD, 95% CI, Collapses)* | `human_init` *(Mean ± SD, 95% CI, Collapses)* | `wsp_warmstart` *(Mean ± SD, 95% CI, Collapses)* | Paired `warm − random_prior` *(pp, 95% CI)* |
+| Task (`n_val`, val prevalence) | `constant_score` *(Full / Margin / PR)* | `global_intensity_logreg` `K = 2` *(Full / Margin)* | `global_intensity_logreg` `K_max` *(Full / Margin / PR)* | Zero-Parameter Hand-Coded Rules (`denpar_cls`) | `frozen_wsp_mean6` *(Full / Margin / PR)* |
+|---|---|---|---|---|---|
+| **`akudental_cls`** (`67`, `0.761`) | 0.500 / 0.500 / 0.761 | 0.558 ± 0.079 / 0.558 ± 0.075 | 0.570 / 0.596 / 0.805 *(peak `K=32`: 0.601 / 0.618)* | — | 0.511 ± 0.067 / 0.593 ± 0.166 / 0.774 |
+| **`denpar_cls`** (`150`, `0.353`) | 0.500 / 0.500 / 0.353 | 0.587 ± 0.062 / 0.618 ± 0.063 | 0.638 / 0.659 / 0.444 | Linear 5×5 edge: `0.643 / 0.450`; Rectified `r\|r\|`: `0.263 / 0.220` *(flip)*; **Top − Bottom half: `0.880 / 0.888`** *(82.7% acc)* | 0.428 ± 0.184 / 0.501 ± 0.241 / 0.324 |
+| **`dentvoxel_cls`** (`20` scans, `0.317`) | 0.500 / 0.500 / 0.317 | 0.656 ± 0.064 / 0.645 ± 0.043 | 0.719 / 0.611 / 0.421 | — | **0.870 ± 0.057 / 0.854 ± 0.080 / 0.722** |
+
+Key baseline findings (Track 1):
+- **`dentvoxel_cls` is the single clearest surviving positive for frozen WSP:** Blind zero-shot frozen WSP (`0.870` Full / `0.854` Margin / `0.722` PR-AUC) exceeds the 3-feature global-intensity logistic regression even trained on all 60 scans (`0.719` / `0.611` / `0.421`) by `+0.151` Full AUC, `+0.243` Margin AUC, and `+0.301` PR-AUC, indicating spatial/morphological cavity filtering beyond global slice histograms (subject to `n = 20` scan sample size).
+- **`denpar_cls` confirms trivial orientation structure & explains `opus` sign flips:** Zero-parameter `mean(top_half) - mean(bottom_half)` achieves `0.880` Full / `0.888` Margin AUC (beating all 6 frozen WSP replies), while the zero-parameter rectified sharp-edge rule `mean(r * |r|)` sign-flips (`0.263 / 0.220`), reproducing `opus_1..3`'s sign-flip mechanism.
+- **`akudental_cls`:** 3-feature global-intensity logistic regression (`0.546–0.601` Full) beats frozen WSP (`0.511`) at all 7 budgets, confirming near-chance performance at `64 × 64`.
+
+---
+
+### 4.2 Fixed-Step & Prior-Bias Factorial Controls (`wsp_core/training/controls.py`)
+
+Both factorials ran to completion with zero NaNs (`540` runs on `dentvoxel_seg`, `450` runs on `akudental_seg`), giving **all four init arms identical optimizer step budgets** in every schedule. Note that the 95% bootstrap CIs below resample validation scans/images (`B = 2,000`) while `SD` captures seed-to-seed (and reply-to-reply) variation across the 5 seeds.
+
+#### Primary Factorial · `dentvoxel_seg` Validation (`20` CBCT scans, `K ∈ {1, 2, 4, 8}`, `seeds = 0..4`, 540 runs)
+
+![DentVoxel Validation Factorial Controls](../results/validation_controls/dentvoxel_seg_factorial_controls.svg)
+
+| Schedule | `K` | `random_zero_bias` *(Mean ± SD; 95% scan CI; Collapses)* | `random_prior_bias` *(Mean ± SD; 95% scan CI; Collapses)* | `human_init` *(Mean ± SD; 95% scan CI; Collapses)* | `wsp_warmstart` (all 6) *(Mean ± SD; 95% scan CI; Collapses)* | Paired `wsp − random_prior` *(Mean ± seed SD [min, max]; scan CI)* |
 |---|---:|---|---|---|---|---|
-| `original_epochs_120` | 1, 2, 4, 8 | *PENDING (run Step 9 on GPU)* | *PENDING* | *PENDING* | *PENDING* | *PENDING* |
-| `fixed_steps_480` | 1, 2, 4, 8 | *PENDING (run Step 9 on GPU)* | *PENDING* | *PENDING* | *PENDING* | *PENDING* |
-| `fixed_steps_1800` | 1, 2, 4, 8 | *PENDING (run Step 9 on GPU)* | *PENDING* | *PENDING* | *PENDING* | *PENDING* |
+| `original_epochs_120` | 1 | 0.00 ± 0.00% `[0.0–0.0]` (`5/5`) | **69.86 ± 1.67%** `[67.5–72.1]` (`0/5`) | 52.32 ± 0.68% `[49.4–55.5]` (`0/5`) | 60.22 ± 4.59% `[57.7–62.8]` (`0/30`) | **−9.64 ± 1.58 pp** `[-11.4, -8.2]` (`[-10.7, -8.5]`) |
+| `original_epochs_120` | 2 | 0.00 ± 0.00% `[0.0–0.0]` (`5/5`) | **69.06 ± 3.12%** `[66.7–71.3]` (`0/5`) | 52.41 ± 0.59% `[49.4–55.6]` (`0/5`) | 59.83 ± 4.45% `[57.3–62.4]` (`0/30`) | **−9.24 ± 2.35 pp** `[-12.1, -5.8]` (`[-10.3, -8.2]`) |
+| `original_epochs_120` | 4 | 0.00 ± 0.00% `[0.0–0.0]` (`5/5`) | **68.85 ± 2.51%** `[66.5–71.0]` (`0/5`) | 52.95 ± 0.77% `[50.0–56.1]` (`0/5`) | 60.22 ± 4.26% `[57.7–62.8]` (`0/30`) | **−8.63 ± 2.45 pp** `[-11.9, -5.6]` (`[-9.7, -7.5]`) |
+| `original_epochs_120` | 8 | 58.12 ± 32.50% `[56.3–59.8]` (`1/5`) | **75.19 ± 3.14%** `[73.0–77.2]` (`0/5`) | 57.35 ± 0.43% `[54.6–60.3]` (`0/5`) | 65.49 ± 3.96% `[63.1–67.9]` (`0/30`) | **−9.70 ± 3.13 pp** `[-12.3, -4.5]` (`[-10.7, -8.7]`) |
+| `fixed_steps_480` | 1 | 74.62 ± 8.18% `[72.5–76.5]` (`0/5`) | **80.49 ± 1.45%** `[78.4–82.4]` (`0/5`) | 63.29 ± 2.95% `[60.9–65.6]` (`0/5`) | 72.11 ± 6.01% `[69.9–74.1]` (`0/30`) | **−8.37 ± 1.70 pp** `[-11.2, -7.2]` (`[-8.8, -7.9]`) |
+| `fixed_steps_480` | 2 | 74.12 ± 9.72% `[72.0–76.0]` (`0/5`) | **80.48 ± 1.06%** `[78.4–82.4]` (`0/5`) | 62.77 ± 1.48% `[60.4–65.2]` (`0/5`) | 72.46 ± 5.87% `[70.3–74.4]` (`0/30`) | **−8.02 ± 1.00 pp** `[-9.7, -7.3]` (`[-8.4, -7.6]`) |
+| `fixed_steps_480` | 4 | 74.92 ± 8.76% `[72.9–76.7]` (`0/5`) | **79.96 ± 3.72%** `[78.1–81.7]` (`0/5`) | 63.39 ± 1.92% `[61.1–65.7]` (`0/5`) | 73.18 ± 5.70% `[71.1–75.0]` (`0/30`) | **−6.78 ± 3.46 pp** `[-9.0, -0.7]` (`[-7.3, -6.3]`) |
+| `fixed_steps_480` | 8 | 74.87 ± 8.34% `[72.8–76.7]` (`0/5`) | **79.73 ± 3.67%** `[77.8–81.5]` (`0/5`) | 62.87 ± 1.04% `[60.5–65.3]` (`0/5`) | 72.91 ± 5.30% `[70.7–74.8]` (`0/30`) | **−6.83 ± 3.77 pp** `[-9.0, -0.1]` (`[-7.4, -6.3]`) |
+| `fixed_steps_1800` | 1 | 77.48 ± 8.54% `[75.7–79.1]` (`0/5`) | **82.19 ± 1.18%** `[80.3–83.8]` (`0/5`) | 79.85 ± 1.78% `[77.9–81.8]` (`0/5`) | 77.36 ± 4.53% `[75.6–78.9]` (`0/30`) | **−4.83 ± 0.26 pp** `[-5.1, -4.5]` (`[-5.1, -4.6]`) |
+| `fixed_steps_1800` | 2 | 77.65 ± 9.82% `[75.8–79.3]` (`0/5`) | **82.55 ± 0.80%** `[80.7–84.2]` (`0/5`) | 80.11 ± 0.91% `[78.1–82.0]` (`0/5`) | 77.84 ± 4.50% `[76.1–79.4]` (`0/30`) | **−4.71 ± 0.35 pp** `[-5.0, -4.1]` (`[-4.9, -4.5]`) |
+| `fixed_steps_1800` | 4 | 78.78 ± 9.43% `[77.1–80.3]` (`0/5`) | **81.94 ± 3.81%** `[80.3–83.4]` (`0/5`) | 80.61 ± 0.32% `[78.7–82.5]` (`0/5`) | 78.47 ± 4.42% `[76.8–79.9]` (`0/30`) | **−3.46 ± 3.93 pp** `[-5.4, +3.6]` (`[-3.7, -3.2]`) |
+| `fixed_steps_1800` | 8 | 78.95 ± 9.21% `[77.2–80.5]` (`0/5`) | **82.01 ± 3.84%** `[80.3–83.6]` (`0/5`) | 80.67 ± 0.35% `[78.7–82.6]` (`0/5`) | 78.81 ± 4.38% `[77.1–80.3]` (`0/30`) | **−3.19 ± 3.89 pp** `[-5.4, +3.7]` (`[-3.4, -3.0]`) |
 
-*Until these validation controls are executed on DentVoxel and AKUDENTAL, any claim that WSP warm-starting prevents sparse-3D optimization collapse or provides a genuine low-`K` sample-efficiency advantage over random initialization remains **unverified** against fair step-budget and prior-bias controls.*
+*Per-family & seed detail at `S = 1,800` (`dentvoxel_seg`): `opus` warm-start reaches `81.38–82.76%` (comparable to `random_prior_bias` `81.94–82.55%`), while `astra` warm-start stalls at `73.34–74.86%`. Even without prior bias, `random_zero_bias` has `0/20` collapses at both `S = 480` and `S = 1,800`: four of five seeds reach `80.1–83.5%` at `S = 1,800`, while seed `2` lands in a `60.1–62.5%` local basin (matching seed `2`'s `61.06%` held-out test run at `K = 60` in v0.1.0), which prior-bias initialization resolves (`81.4–83.7%` on seed `2`).*
+
+#### Secondary Factorial · `akudental_seg` Validation (`67` panoramics, `K ∈ {1, 4, 16, 32, 64}`, `seeds = 0..4`, 450 runs)
+
+![AKUDENTAL Validation Factorial Controls](../results/validation_controls/akudental_seg_factorial_controls.svg)
+
+| Schedule | `K` | `random_zero_bias` *(Mean ± SD; 95% img CI)* | `random_prior_bias` *(Mean ± SD; 95% img CI)* | `human_init` *(Mean ± SD; 95% img CI)* | `wsp_warmstart` (all 6) *(Mean ± SD; 95% img CI)* | Paired `wsp − random_prior` *(Mean ± seed SD [min, max]; img CI)* |
+|---|---:|---|---|---|---|---|
+| `original_epochs_150` | 1 | 37.94 ± 14.80% `[35.6–40.3]` | 44.22 ± 8.87% `[41.6–47.0]` | 40.19 ± 10.41% `[38.5–41.8]` | **51.41 ± 11.50%** `[49.1–53.7]` | +7.20 ± 6.55 pp `[-1.0, +17.3]` (`[+6.2, +8.1]`) |
+| `original_epochs_150` | 4 | 40.16 ± 7.04% `[37.5–42.9]` | 51.39 ± 4.83% `[48.7–54.1]` | 36.05 ± 6.38% `[34.3–37.8]` | **55.89 ± 9.82%** `[53.4–58.3]` | +4.50 ± 2.41 pp `[+2.2, +8.1]` (`[+3.7, +5.3]`) |
+| `original_epochs_150` | 16 | 42.07 ± 6.22% `[39.4–44.8]` | 55.15 ± 2.16% `[52.4–57.9]` | 36.23 ± 2.06% `[34.5–38.0]` | **58.32 ± 8.45%** `[55.7–60.8]` | +3.16 ± 0.93 pp `[+1.8, +4.1]` (`[+2.3, +4.0]`) |
+| `original_epochs_150` | 32 | 41.61 ± 5.98% `[38.9–44.4]` | 55.11 ± 1.33% `[52.3–57.9]` | 35.66 ± 1.18% `[33.9–37.4]` | **58.21 ± 8.98%** `[55.6–60.8]` | +3.10 ± 0.90 pp `[+2.0, +4.0]` (`[+2.2, +4.0]`) |
+| `original_epochs_150` | 64 | 61.45 ± 1.25% `[58.6–64.2]` | 63.10 ± 0.45% `[60.4–65.6]` | 50.53 ± 0.27% `[48.2–52.6]` | **64.48 ± 3.45%** `[61.8–67.1]` | +1.38 ± 0.37 pp `[+0.9, +1.9]` (`[+0.9, +1.8]`) |
+| `fixed_steps_1050` | 1 | 61.64 ± 3.70% `[59.2–64.0]` | **63.18 ± 2.78%** `[60.5–65.8]` | 55.60 ± 3.67% `[53.2–57.8]` | 60.95 ± 6.41% `[58.4–63.3]` | **−2.23 ± 3.76 pp** `[-8.8, +0.2]` (`[-2.6, -1.9]`) |
+| `fixed_steps_1050` | 4 | 66.22 ± 0.92% `[63.6–68.7]` | **66.94 ± 0.79%** `[64.4–69.3]` | 56.85 ± 2.53% `[54.3–59.2]` | 66.24 ± 2.90% `[63.6–68.7]` | **−0.69 ± 0.87 pp** `[-1.8, +0.3]` (`[-0.9, -0.5]`) |
+| `fixed_steps_1050` | 16 | 68.74 ± 1.07% `[66.2–71.1]` | **69.51 ± 0.85%** `[67.0–71.8]` | 58.12 ± 0.80% `[55.5–60.5]` | 68.33 ± 2.75% `[65.8–70.7]` | **−1.18 ± 0.85 pp** `[-2.3, -0.4]` (`[-1.4, -1.0]`) |
+| `fixed_steps_1050` | 32 | 68.73 ± 1.56% `[66.1–71.1]` | **69.55 ± 0.76%** `[67.0–71.8]` | 57.89 ± 0.51% `[55.3–60.2]` | 68.54 ± 2.78% `[65.9–70.9]` | **−1.01 ± 0.43 pp** `[-1.4, -0.5]` (`[-1.3, -0.7]`) |
+| `fixed_steps_1050` | 64 | 68.24 ± 1.10% `[65.6–70.7]` | **69.26 ± 0.52%** `[66.8–71.6]` | 58.20 ± 0.24% `[55.6–60.6]` | 68.23 ± 2.67% `[65.6–70.6]` | **−1.03 ± 0.62 pp** `[-1.8, -0.4]` (`[-1.4, -0.7]`) |
+
+*(0/450 collapsed runs across all AKUDENTAL factorial cells. At `S = 1,050`, `random_prior_bias` also beats all-6 `wsp_warmstart` on BF1 (`44.0–51.2%` vs. `38.3–45.3%`) and Edge Recall (`46.1–59.2%` vs. `38.6–48.7%`) at every `K`.)*
+
+**Honest Verdict on Low-`K` Warm-Start Claims:**
+The low-`K` segmentation warm-start advantages reported in v0.1.0 **do not survive fair random-init controls**. Both the 3D CBCT collapse (`0.00%` Dice at `K = 1..4` on `dentvoxel_seg`) and the 2D panoramic low-`K` gap (`+11–16 pp` at `K = 2..32` on `akudental_seg`) were artifacts of under-training random initialization under fixed-epoch schedules (120–150 steps at low `K`) and initializing `output_bias = 0.0` under strong class imbalance (`~1%` foreground in 3D). Once random initialization receives the standard one-line log-odds prior bias (`log(p/(1-p))`) and matched optimizer steps, it has **zero collapses across all 110/110 runs** (`0/60` on DentVoxel, `0/50` on AKUDENTAL) and outperforms all-6 WSP warm-start at **every single low-`K` budget tested** on both `dentvoxel_seg` (`82.2%` vs. `77.4%` from `K = 1` scan at `S = 1,800`) and `akudental_seg` (`63.2%` vs. `60.9%` from `K = 1` film at `S = 1,050`, plus `+5.3–6.6 pp` higher BF1 and `+7.3–11.8 pp` higher Edge Recall).
 
 ---
 
 ## 5. Mechanistic Discussion & Limitations
 
 1. **Intensity-Windowing Hypothesis (Confounded by Task, Prompt & Dataset):**
-   In 2D radiographs normalized by per-film `0.5th–99.5th` percentiles, relative gray levels shift with exposure, sensor rims, and anatomy, and frozen WSP fails to beat trivial intensity or orientation baselines on DenPAR (`denpar_seg`, `denpar_cls`). On DentVoxel CBCT, inputs are mapped through a fixed dental intensity window (`[-1000, +3000] → [0, 1]`). **Importantly, CBCT gray values are not reliably calibrated Hounsfield Units**, and although frozen WSP performed substantially better on `dentvoxel_cls` (`0.868 ± 0.059` AUC, `0/6` flips) than on 2D classification tasks, this observation is **a hypothesis heavily confounded by task structure (gross bilateral air-filled maxillary sinus cavities vs. subtle metallic restorations), prompt cues, 3D geometry, and dataset differences** — not a causal proof that intensity calibration unlocks WSP.
+   In 2D radiographs normalized by per-film `0.5th–99.5th` percentiles, relative gray levels shift with exposure, sensor rims, and anatomy, and frozen WSP fails to beat trivial intensity or orientation baselines on DenPAR (`denpar_seg`, `denpar_cls`) or global intensity features on `akudental_cls`. On DentVoxel CBCT, inputs are mapped through a fixed dental intensity window (`[-1000, +3000] → [0, 1]`). **Importantly, CBCT gray values are not reliably calibrated Hounsfield Units.** While frozen WSP genuinely beats the 3-feature global-intensity logistic regression on `dentvoxel_cls` (`0.870` vs. `0.719` Full / `0.854` vs. `0.611` Margin AUC on validation), on `dentvoxel_seg` a single train-selected HU-window threshold (`51.18%`) already exceeds blind frozen WSP (`47.42%`). Any advantage of fixed intensity windowing remains **a hypothesis confounded by task structure (gross bilateral air-filled maxillary sinus cavities vs. subtle metallic restorations), prompt cues, 3D geometry, and dataset differences**.
 2. **Spatial Prior Behavior Across Imaging Geometries:**
-   - **Panoramic (`AKUDENTAL`):** Standardized jaw geometry makes the `3 × 5` spatial grid large (`+26.57 ± 6.84 pp` test `A − B` Dice gain; `90.27 ± 3.19%` outside-ROI share of grid-removed FPs), though `K_max = 200` trained position-only alone reaches `56.64%` Dice (with only `5.12%` Edge Rec).
-   - **Periapical (`DenPAR`):** Removing standardized panoramic framing shrinks grid gain to `+0.88 ± 0.51 pp`, and frozen WSP (`42.35%` test / `43.35%` val Dice) underperforms all-foreground (`53.90%` val), per-image Otsu (`43.58%` val Dice with much higher BF1/Edge Rec), and a single global intensity threshold (`63.61%` val Dice).
-   - **3D CBCT (`DentVoxel`):** Volumetric tooth sparsity (`<2%` of valid voxels) breaks the pure spatial shortcut (`Trained Position-Only` drops to `7.12%` test Dice). The `3 × 3 × 3` grid adds `+10.95 ± 1.72 pp` Dice (`90.20 ± 4.09%` outside-ROI share of grid-removed FPs), but frozen 3D box IoU remains low (`15.7–22.5%`), making `0.00%` excluded tooth voxels near-trivial until box valid-volume retention is audited.
-3. **Optimization Confounds & Dead-ReLU Risk:**
-   - **Low-`K` step-budget confound:** Fixed-epoch training severely under-trained `random_init_adam` at `K ∈ {1, 2, 4}` (`120` steps) with `output_bias = 0.0`. The v0.1.1 factorial control (`max_steps ∈ {480, 1800}`, `init_output_bias = "prior"`, plus human-written 82p prior) is required before drawing conclusions on sparse-3D warm-starting.
-   - **Dead-ReLU risk:** Negative hand-coded `conv1_bias`/`conv2_bias` in `denpar_cls` `opus_2..3` produced `25/240` dead-ReLU runs (`AUC = 0.5000`), demonstrating that blind LLM initializations can also hurt optimization when fine-tuned without architectural adjustments.
+   - **Panoramic (`AKUDENTAL`):** Standardized jaw geometry makes the `3 × 5` spatial grid essential for frozen WSP (`+26.57 ± 6.84 pp` test `A − B` Dice gain; `46.98%` vs. `24.88%` global intensity thresholding on val), though `K_max = 200` trained position-only reaches `56.64%` test Dice (`5.12%` Edge Rec) and frozen WSP boxes still retain `67.84%` of the valid canvas.
+   - **Periapical (`DenPAR`):** Removing standardized panoramic framing shrinks grid gain to `+0.88 ± 0.51 pp`, and frozen WSP (`42.35%` test / `43.35%` val Dice) loses to all-foreground (`53.90%` val), per-image Otsu (`43.58%` val Dice with `+9.7 pp` higher BF1 and `+14.0 pp` higher Edge Rec), and a single global threshold (`63.61%` val Dice).
+   - **3D CBCT (`DentVoxel`):** Volumetric tooth sparsity (`~1%` of valid voxels; all-foreground Dice = `2.00%`) breaks the pure spatial shortcut (`Trained Position-Only` drops to `7.12%` test Dice). The `3 × 3 × 3` grid adds `+10.95 ± 1.72 pp` test Dice and shrinks enclosing-box valid-volume retention from `81.64%` (global threshold) to `59.52%` (frozen WSP val), yet retaining nearly 60% of the valid 3D volume (`3D Box IoU = 15.7–22.5%` on test) still makes `0.00%` excluded tooth voxels near-trivial.
+3. **Optimization Confounds Resolved & Dead-ReLU Risk:**
+   - **Resolved low-`K` confound:** The v0.1.1 validation factorials (Section 4.2) demonstrate conclusively that v0.1.0's sparse-3D random-init collapse and 2D low-`K` warm-start gaps were artifacts of epoch-based step scaling and `output_bias = 0.0`, not a genuine warm-start advantage of LLM-generated weights.
+   - **Dead-ReLU risk:** Negative hand-coded `conv1_bias`/`conv2_bias` in `denpar_cls` `opus_2..3` produced `25/240` dead-ReLU runs (`AUC = 0.5000`), and zero-initialized filters `1–5` in `human_82p_warmstart` remained inactive under ReLU on 2D tasks — demonstrating how brittle hand-coded initializations can impede gradient fine-tuning compared to properly bias-calibrated random initialization.
 4. **Coordinate-Frame Fidelity (`DentVoxel` RAS+ Audit):**
    Pre-test validation auditing uncovered `99 LPS + 1 LIP` raw NIfTI orientations and 5 skipped scan IDs (`img0001..0105`). Enforcing NIfTI `sform`/`qform` RAS+ canonicalization in commit `05ae8d2` resolved the prompt-vs-volume `Y`-axis flip, but because this fix occurred after observing validation scores, the DentVoxel validation split partly acted as a development set (disclosed in [`docs/DEVIATIONS.md`](DEVIATIONS.md)).
 5. **Scope Limitation on DenPAR (Tooth Union vs. Clinical Landmarking):**
