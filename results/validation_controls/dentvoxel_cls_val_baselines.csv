@@ -1,0 +1,9 @@
+task,baseline,k_budget,n_runs,roc_auc_mean,roc_auc_std,pr_auc_mean,margin_roc_auc_mean,margin_roc_auc_std,notes
+dentvoxel_cls,constant_score,0,1,0.5,,0.3168604651162791,0.5,,Constant score 0.0 (val prevalence=0.317)
+dentvoxel_cls,frozen_wsp_mean6,0,6,0.8699148936170213,0.05725755652598363,0.7220663269426391,0.8543048994729651,0.0797735562559478,Mean +/- SD across all 6 locked frozen WSP replies (K=0)
+dentvoxel_cls,global_intensity_logreg,2,5,0.6557876244388053,0.0641541395530043,0.42146822253836885,0.6447609603747804,0.04332185825533586,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
+dentvoxel_cls,global_intensity_logreg,4,5,0.6766897520983799,0.06555042071346329,0.4194498581742966,0.6201538161233653,0.03029571029463585,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
+dentvoxel_cls,global_intensity_logreg,8,5,0.7065257075932071,0.020828562440688907,0.4365982558475327,0.6231483115362092,0.030177301745979688,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
+dentvoxel_cls,global_intensity_logreg,16,5,0.7104996291235605,0.019569350606002813,0.43293321277584873,0.612154128440367,0.023248512893693805,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
+dentvoxel_cls,global_intensity_logreg,32,5,0.7121286746047237,0.011343872099836543,0.4167633273480355,0.6110722623462814,0.012017585153957296,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
+dentvoxel_cls,global_intensity_logreg,60,5,0.7193659964864337,0.0,0.4211583342920525,0.6110060511419091,0.0,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"

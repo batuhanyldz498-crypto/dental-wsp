@@ -3,7 +3,7 @@ denpar_cls,constant_score,0,1,0.5,,0.35333333333333333,0.5,,Constant score 0.0 (
 denpar_cls,handcoded_vertical_crown_edge_linear,0,1,0.6426765220774169,,0.4872379175882535,0.4503987551060105,,"Zero-param mean 5x5 bright->dark vertical edge (acc=0.527, flip=False)"
 denpar_cls,handcoded_vertical_crown_edge_rectified,0,1,0.2629838552810737,,0.24615267485640363,0.2203851390780004,,"Zero-param signed squared 5x5 edge (r*|r|) (acc=0.347, flip=True)"
 denpar_cls,handcoded_top_minus_bottom_half,0,1,0.8795954094534137,,0.7372752230303925,0.8883485703170589,,"Zero-param mean(top half) - mean(bottom half) (acc=0.827, flip=False)"
-denpar_cls,frozen_wsp_mean6,0,6,0.4278998897750114,0.1844204976085402,0.32431209204790135,0.5008428969720548,0.24105728471361237,Mean +/- SD across all 6 locked frozen WSP replies (K=0)
+denpar_cls,frozen_wsp_mean6,0,6,0.42793230888932116,0.18443426684219213,0.3243329867594499,0.5008428969720548,0.24105728471361237,Mean +/- SD across all 6 locked frozen WSP replies (K=0)
 denpar_cls,global_intensity_logreg,2,5,0.5868119042987746,0.0623610563872735,0.42222092262140604,0.6179731569733514,0.0630347641540445,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
 denpar_cls,global_intensity_logreg,4,5,0.4979575957984828,0.09877497117625549,0.3682061591535145,0.5028593658821241,0.12899612106313313,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
 denpar_cls,global_intensity_logreg,8,5,0.5353822213577125,0.08058527696064546,0.39962715083299905,0.55238280490177,0.10196562989545173,"L2 logreg on (mean, frac<0.1, frac>0.9) fit on K-budget train subset"
