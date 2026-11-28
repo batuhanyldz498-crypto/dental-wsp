@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dental-wsp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source Weight-Space Programming (WSP) benchmark for digital dentistry across 2D periapical, 2D panoramic, and 3D CBCT imaging."
 readme = "README.md"
 license = { file = "LICENSE" }

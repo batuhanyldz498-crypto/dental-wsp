@@ -143,9 +143,9 @@ This repository's **code** is MIT-licensed. Each external dataset remains subjec
 
 | Dataset | Source & Access | License / Terms | Guide |
 |---|---|---|---|
-| **AKUDENTAL** | Oz et al., *BMC Oral Health* (2025) — [DOI](https://doi.org/10.1186/s12903-025-07645-0) · [GitHub](https://github.com/melihoz/AKUDENTAL) | CC BY-NC-SA 4.0 | [benchmarks/akudental/DATASET.md](benchmarks/akudental/DATASET.md) |
-| **DenPAR** | Rasnayaka et al., *Scientific Data* (2025) — Zenodo | See Zenodo record | [benchmarks/denpar/DATASET.md](benchmarks/denpar/DATASET.md) |
-| **DentVoxel** | 100 large-FOV CBCT scans, 38 instance labels (NIfTI) — [Figshare](https://figshare.com/articles/dataset/DentVoxel_a_fully_annotated_dental_CBCT_dataset_with_38_instance_anatomical_structures/31239889) | Public Figshare dataset terms | [benchmarks/dentvoxel/DATASET.md](benchmarks/dentvoxel/DATASET.md) |
+| **AKUDENTAL** | Oz M, Sengul A, Hatipoglu M, Danisman T, *BMC Oral Health* (2025) — [DOI](https://doi.org/10.1186/s12903-025-07645-0) · [GitHub](https://github.com/melihoz/AKUDENTAL) | CC BY-NC-SA 4.0 | [benchmarks/akudental/DATASET.md](benchmarks/akudental/DATASET.md) |
+| **DenPAR** | Rasnayaka S, Leuke Bandara D, Jayasundara A, Jayasinghe R, Wimalasiri C, Rathnayake P, Wijerathne S, Ragel R, Thambawita V, Nawinne I, *Scientific Data* 12, 1615 (2025) — [DOI](https://doi.org/10.1038/s41597-025-05906-9) · [Zenodo](https://doi.org/10.5281/zenodo.16645076) | See Zenodo / *Scientific Data* record | [benchmarks/denpar/DATASET.md](benchmarks/denpar/DATASET.md) |
+| **DentVoxel** | Zhou Y, Xu Y, Tarce MA — 100 large-FOV CBCT scans, 38 instance labels (NIfTI) — [Figshare DOI](https://doi.org/10.6084/m9.figshare.31239889) | Public Figshare dataset terms | [benchmarks/dentvoxel/DATASET.md](benchmarks/dentvoxel/DATASET.md) |
 
 ---
 
@@ -184,8 +184,8 @@ dental-wsp/
 
 ## References
 
-- Lindholz M, Ruppel R, Milnik A, et al. *Weight-Space Programming for Medical Imaging: Do We Still Need Training Data?* arXiv:2611.12066. https://arxiv.org/abs/2611.12066
+- Lindholz M, Ruppel R, Milnik A, Halskov S, Eminovic S, Hamm CA, Schmidt R, Knupfer A, Hutter J, Müller JP, Dominguez Aleixo C, Nawabi J, Vogel-Claussen J, Penzkofer T. *Weight-Space Programming for Medical Imaging: Do We Still Need Training Data?* arXiv:2611.12066 (2026). https://arxiv.org/abs/2611.12066 · Code: https://github.com/MaximilianLindholz/weight-space-programming-medical
 - Hanley JA, McNeil BJ. *The meaning and use of the area under a receiver operating characteristic (ROC) curve.* Radiology (1982); 143(1):29–36.
-- Oz M, Sengul A, Hatipoglu M, Danisman T. *AKUDENTAL teeth instance segmentation dataset: a cross-dataset analysis.* BMC Oral Health (2025). https://doi.org/10.1186/s12903-025-07645-0
-- Rasnayaka et al. *DenPAR: Annotated Intra-Oral Periapical Radiographs Dataset for Machine Learning.* Scientific Data (2025).
-- DentVoxel CBCT Dataset (100 scans, 38 anatomical structures, NIfTI). Figshare: https://figshare.com/articles/dataset/DentVoxel_a_fully_annotated_dental_CBCT_dataset_with_38_instance_anatomical_structures/31239889
+- Oz M, Sengul A, Hatipoglu M, Danisman T. *AKUDENTAL teeth instance segmentation dataset: a cross-dataset analysis.* BMC Oral Health (2025). https://doi.org/10.1186/s12903-025-07645-0 · https://github.com/melihoz/AKUDENTAL
+- Rasnayaka S, Leuke Bandara D, Jayasundara A, Jayasinghe R, Wimalasiri C, Rathnayake P, Wijerathne S, Ragel R, Thambawita V, Nawinne I. *DenPAR: Annotated Intra-Oral Periapical Radiographs Dataset for Machine Learning.* Scientific Data 12, 1615 (2025). https://doi.org/10.1038/s41597-025-05906-9 · Zenodo: https://doi.org/10.5281/zenodo.16645076
+- Zhou Y, Xu Y, Tarce MA. *DentVoxel: a fully annotated dental CBCT dataset with 38 instance anatomical structures.* Figshare. https://doi.org/10.6084/m9.figshare.31239889

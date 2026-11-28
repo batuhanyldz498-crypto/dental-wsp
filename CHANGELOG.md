@@ -2,7 +2,7 @@
 
 All notable changes to `dental-wsp` are documented here.
 
-## [0.1.1] - Unreleased (External Review Fixes)
+## [0.1.1] - 2026-11-28 (External Review Fixes & Validation Controls)
 
 ### Governance, Provenance & Disclosures
 - Added [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) with a programmatic diff of every `benchmarks/*/configs/*.yaml`, `benchmarks/*/locks/*.design.lock.json`, and `docs/BENCHMARK_PROTOCOL.md` against the executed schedules in `docs/test_authorization.json`, plus a commit-by-commit timeline (`git log`) disclosing:
